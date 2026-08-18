@@ -112,7 +112,18 @@ class ReplayRecorder:
         self.log = ReplayLog(env.snapshot())
 
     def record(self, result: StepResult) -> None:
-        self.log.frames.append(ReplayFrame(result.action, result.spawn, result.to_json()))
+        # A resolved spawn is not necessarily an injected replay event.  When
+        # the environment sampled it from its RNG, replay must call ``step``
+        # without an event so that the same RNG draws are consumed.  An
+        # explicitly injected event leaves the RNG counter unchanged, which is
+        # enough to preserve that distinction without expanding the frame
+        # schema.
+        replay_event = (
+            result.spawn
+            if result.spawn is not None and result.rng_counter_after == result.rng_counter_before
+            else None
+        )
+        self.log.frames.append(ReplayFrame(result.action, replay_event, result.to_json()))
 
 
 def _compare_result(step_index: int, expected: dict[str, Any], actual: StepResult) -> None:

@@ -28,6 +28,21 @@ def test_replay_round_trip_and_verification(tmp_path) -> None:
     assert len(loaded.frames) == 2
 
 
+def test_replay_round_trip_preserves_rng_generated_spawns(tmp_path) -> None:
+    env = OracleEnv(root_seed="random-replay", environment_id="random-env")
+    env.reset(episode_id=0)
+    recorder = ReplayRecorder(env)
+    recorder.record(env.step(Action.LEFT))
+    recorder.record(env.step(Action.DOWN))
+
+    path = tmp_path / "random-run.jsonl"
+    recorder.log.write(path)
+    loaded = ReplayLog.read(path)
+
+    assert all(frame.chance_event is None for frame in loaded.frames)
+    verify_replay(OracleEnv(root_seed="other-root", environment_id="other-env"), loaded)
+
+
 def test_replay_reports_first_divergent_field() -> None:
     log = _recorded_log()
     log.frames[0].result["score_delta"] = 999
