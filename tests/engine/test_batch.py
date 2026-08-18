@@ -26,3 +26,15 @@ def test_batch_snapshot_round_trip() -> None:
     batch.restore(snapshot.to_json())
 
     assert batch.observations() == expected
+
+
+def test_batch_snapshot_json_key_order_is_not_significant() -> None:
+    batch = ReferenceBatch(("a", "b"), root_seed="batch-snapshot-order")
+    batch.reset()
+    snapshot = batch.snapshot().to_json()
+    snapshot["environments"] = dict(reversed(list(snapshot["environments"].items())))
+
+    batch.reset(episode_ids={"a": 2, "b": 2})
+    batch.restore(snapshot)
+
+    assert batch.observations()["a"].board == tuple(snapshot["environments"]["a"]["board"])

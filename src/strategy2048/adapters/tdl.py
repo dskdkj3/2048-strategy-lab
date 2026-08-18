@@ -136,6 +136,8 @@ class TDLAdapter:
     def run(self, source: str | Path, binary: str | Path, workload: TDLWorkload) -> TDLReport:
         report = self.verify(source, binary, workload)
         command = [str(Path(binary).resolve()), "-n", workload.network]
+        if workload.threads > 1:
+            command.extend(("-p", str(workload.threads)))
         if workload.train:
             command.extend(("-t", f"{workload.threads}x{workload.train}"))
         if workload.evaluation:

@@ -57,6 +57,23 @@ def test_adapter_verifies_provenance_and_parses_native_text(tmp_path) -> None:
     assert report.result["stdout_sha256"]
 
 
+def test_adapter_passes_parallel_thread_count_to_tdl(tmp_path) -> None:
+    source = tmp_path / "source"
+    commit = _git_repository(source)
+    binary = tmp_path / "tdl-fixture"
+    _fake_binary(binary, commit)
+
+    report = TDLAdapter(expected_commit=commit).run(
+        source,
+        binary,
+        TDLWorkload(seed="fixture", threads=4, network="4x6patt", train=1),
+    )
+
+    command = report.result["command"]
+    assert "-p" in command
+    assert command[command.index("-p") + 1] == "4"
+
+
 def test_adapter_fails_closed_on_dirty_source(tmp_path) -> None:
     source = tmp_path / "source"
     commit = _git_repository(source)

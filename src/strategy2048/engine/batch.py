@@ -104,7 +104,7 @@ class ReferenceBatch:
                     key: EngineSnapshot.from_json(value) for key, value in raw_envs.items()
                 },
             )
-        if tuple(snapshot.environments) != self.environment_ids:
+        if set(snapshot.environments) != set(self.environment_ids):
             raise ValueError("batch environment ids differ from snapshot")
-        for environment_id, state in snapshot.environments.items():
-            self.envs[environment_id].restore(state)
+        for environment_id in self.environment_ids:
+            self.envs[environment_id].restore(snapshot.environments[environment_id])
