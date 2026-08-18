@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schema_version", "counters", "wall_seconds", "rates", "search"],
+  "properties": {
+    "schema_version": {"const": "metric-v1"},
+    "counters": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "wall_seconds": {"type": "object", "additionalProperties": {"type": "number", "minimum": 0}},
+    "rates": {"type": "object"},
+    "search": {"type": "object"}
+  },
+  "additionalProperties": true
+}

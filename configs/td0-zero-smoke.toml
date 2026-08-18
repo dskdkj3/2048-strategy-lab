@@ -1,0 +1,11 @@
+seed = "td0-zero-smoke-v1"
+episodes = 3
+max_steps = 200
+checkpoint_every = 2
+initialization = "zero"
+alpha = 0.1
+gamma = 1.0
+symmetry = true
+value_cardinality = 16
+experiment_id = "td0-zero-smoke"
+output_root = "artifacts"

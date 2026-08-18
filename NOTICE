@@ -1,0 +1,6 @@
+strategy2048
+Copyright 2026 dskdkj3
+
+This repository contains an independent implementation of the public 2048
+rules contract. It does not vendor the upstream browser game, TDL2048, GPL
+code, checkpoints, or external training artifacts.

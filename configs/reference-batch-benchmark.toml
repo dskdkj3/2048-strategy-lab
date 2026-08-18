@@ -1,0 +1,4 @@
+agent = "random"
+seed = "reference-batch-v1"
+episodes = 3
+max_steps = 200

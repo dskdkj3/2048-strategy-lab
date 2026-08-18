@@ -1,0 +1,6 @@
+seed = "scientific-mvp-tdl-smoke"
+threads = 1
+network = "4x6patt"
+train = 1
+eval = 1
+search = "1p"

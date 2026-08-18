@@ -1,0 +1,6 @@
+agent = "random"
+seed = "td0-profile-v1"
+episodes = 3
+max_steps = 200
+profile_name = "reference"
+profile_dir = "profiles"

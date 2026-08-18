@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schema_version", "experiment_id", "config_hash", "seed", "source", "host", "budget", "stop_reason", "artifact_schema_version"],
+  "properties": {
+    "schema_version": {"const": "run-manifest-v1"},
+    "experiment_id": {"type": "string", "minLength": 1},
+    "config_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "seed": {},
+    "source": {"type": "object"},
+    "host": {"type": "object"},
+    "budget": {"type": "object"},
+    "stop_reason": {"type": ["string", "null"]},
+    "artifact_schema_version": {"const": "artifact-v1"}
+  },
+  "additionalProperties": true
+}

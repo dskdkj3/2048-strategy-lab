@@ -1,0 +1,12 @@
+seed = "td0-oi-smoke-v1"
+episodes = 3
+max_steps = 200
+checkpoint_every = 2
+initialization = "optimistic"
+optimistic_value = 1.0
+alpha = 0.1
+gamma = 1.0
+symmetry = true
+value_cardinality = 16
+experiment_id = "td0-oi-smoke"
+output_root = "artifacts"

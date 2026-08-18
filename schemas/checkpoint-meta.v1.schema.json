@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schema_version", "agent_type", "learner_config", "array_shape", "array_dtype", "counters", "state_hash"],
+  "properties": {
+    "schema_version": {"const": "checkpoint-meta-v1"},
+    "agent_type": {"type": "string"},
+    "config_hash": {"type": "string"},
+    "learner_config": {"type": "object"},
+    "array_shape": {"type": "array", "items": {"type": "integer"}},
+    "array_dtype": {"type": "string"},
+    "counters": {"type": "object"},
+    "state_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": true
+}

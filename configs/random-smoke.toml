@@ -1,0 +1,6 @@
+agent = "random"
+seed = "random-smoke-v1"
+episodes = 3
+max_steps = 200
+experiment_id = "random-smoke"
+output_root = "artifacts"

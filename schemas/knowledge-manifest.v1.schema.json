@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schema_version", "experiment_kind", "observation", "reward", "features", "initialization", "curriculum", "checkpoint", "demonstrations", "search", "tablebase", "detectors"],
+  "properties": {
+    "schema_version": {"const": "knowledge-manifest-v1"},
+    "experiment_kind": {"enum": ["baseline", "discovery", "hybrid", "external"]},
+    "observation": {"type": "object"},
+    "reward": {"type": "object"},
+    "features": {"type": "object"},
+    "initialization": {"type": "object"},
+    "curriculum": {"type": "object"},
+    "checkpoint": {"type": "object"},
+    "demonstrations": {"type": "object"},
+    "search": {"type": "object"},
+    "tablebase": {"type": "object"},
+    "detectors": {"type": "object"}
+  },
+  "additionalProperties": false
+}

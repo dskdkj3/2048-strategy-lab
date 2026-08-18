@@ -1,0 +1,6 @@
+agent = "score_greedy"
+seed = "score-greedy-smoke-v1"
+episodes = 3
+max_steps = 200
+experiment_id = "score-greedy-smoke"
+output_root = "artifacts"
