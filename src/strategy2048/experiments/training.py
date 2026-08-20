@@ -67,6 +67,7 @@ def train_td(
                         artifact_store.root / "checkpoints",
                         episode_id + 1,
                         config_hash=artifact_store.config_hash,
+                        environment_snapshot=env.snapshot(),
                     )
     metrics.add_wall("end_to_end", time.perf_counter() - started_all)
     metrics_record = metrics.snapshot()
@@ -78,12 +79,12 @@ def train_td(
                 "kind": "training",
                 "episodes": aggregate_episodes(summaries),
                 "metrics": metrics_record,
-                "learner_state_hash": agent.learner.value_function.state_hash(),
+                "learner_state_hash": agent.learner.state_hash(),
             },
         )
     return {
         "schema_version": "training-summary-v1",
         "episodes": aggregate_episodes(summaries),
         "metrics": metrics_record,
-        "learner_state_hash": agent.learner.value_function.state_hash(),
+        "learner_state_hash": agent.learner.state_hash(),
     }

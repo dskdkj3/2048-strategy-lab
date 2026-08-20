@@ -191,12 +191,18 @@ def command_manifest_validate(args: argparse.Namespace) -> int:
 def command_checkpoint_verify(args: argparse.Namespace) -> int:
     config = _load_toml(args.config) if args.config else {}
     agent = _td_agent(config)
-    agent.restore_checkpoint(
+    environment = agent.restore_checkpoint(
         args.directory, int(args.step), config_hash=str(args.config_hash or "")
     )
     print(
         json.dumps(
-            {"valid": True, "state_hash": agent.learner.value_function.state_hash()}, sort_keys=True
+            {
+                "valid": True,
+                "state_hash": agent.learner.state_hash(),
+                "environment_schema": environment.schema_version,
+                "rng_schema": environment.rng.schema_version,
+            },
+            sort_keys=True,
         )
     )
     return 0

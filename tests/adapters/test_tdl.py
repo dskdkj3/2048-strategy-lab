@@ -100,6 +100,29 @@ def test_parser_accepts_zero_millisecond_infinite_ops_report() -> None:
     assert result["reported_ops_text"] == "inf"
 
 
+def test_adapter_rejects_ambiguous_short_banner_revision(tmp_path) -> None:
+    source = tmp_path / "source"
+    commit = _git_repository(source)
+    binary = tmp_path / "tdl-fixture"
+    _fake_binary(binary, commit)
+
+    binary.write_text(
+        "#!/usr/bin/env python3\n"
+        "print('Develop Rev.a (GCC fixture)')\n"
+        "print('summary 7ms 1234.50ops')\n"
+        "print('total:  avg=5017 max=13064 tile=1024 win=5.00%')\n",
+        encoding="utf-8",
+    )
+    binary.chmod(binary.stat().st_mode | 0o111)
+
+    with pytest.raises(TDLAdapterError, match="revision"):
+        TDLAdapter(expected_commit=commit).run(
+            source,
+            binary,
+            TDLWorkload(seed="fixture", network="4x6patt", evaluation=1),
+        )
+
+
 def test_adapter_rejects_non_executable_binary(tmp_path) -> None:
     source = tmp_path / "source"
     commit = _git_repository(source)

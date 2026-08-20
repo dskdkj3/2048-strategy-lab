@@ -8,4 +8,6 @@ detectors, and external checkpoints are absent.
 
 If a future experiment uses one of those sources it must be labeled `hybrid` or
 another explicit non-discovery kind. Hiding a source in a renamed field is not
-an acceptable bypass; `KnowledgeManifest.validate()` rejects the run.
+an acceptable bypass; `KnowledgeManifest.validate()` normalizes separator and
+camel-case variants before rejecting the run. Imported manifests must also
+contain exactly the complete v1 field set rather than relying on local defaults.

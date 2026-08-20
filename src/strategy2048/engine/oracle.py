@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -123,15 +124,46 @@ class EngineSnapshot:
     def from_json(cls, value: object) -> EngineSnapshot:
         if not isinstance(value, dict):
             raise ValueError("engine snapshot must be an object")
+        required = {
+            "schema_version",
+            "board",
+            "score",
+            "won",
+            "terminated",
+            "truncated",
+            "episode_id",
+            "step_id",
+            "rng",
+        }
+        if set(value) != required:
+            raise ValueError("engine snapshot must contain the complete field set")
+        if not isinstance(value["schema_version"], str):
+            raise ValueError("engine snapshot schema_version must be a string")
+        for field_name in ("won", "terminated", "truncated"):
+            if type(value[field_name]) is not bool:
+                raise ValueError(f"engine snapshot {field_name} must be a boolean")
+        for field_name in ("score", "episode_id", "step_id"):
+            if type(value[field_name]) is not int:
+                raise ValueError(f"engine snapshot {field_name} must be an integer")
+        board = value["board"]
+        if not isinstance(board, (list, tuple)):
+            raise ValueError("engine snapshot board must be an array")
+        if any(type(cell) is not int for cell in board):
+            raise ValueError("engine snapshot board cells must be integers")
+        score = value["score"]
+        episode_id = value["episode_id"]
+        step_id = value["step_id"]
+        if score < 0 or episode_id < -1 or step_id < 0:
+            raise ValueError("engine snapshot counters are out of range")
         return cls(
-            schema_version=str(value["schema_version"]),
-            board=validate_board(value["board"]),
-            score=int(value["score"]),
-            won=bool(value["won"]),
-            terminated=bool(value["terminated"]),
-            truncated=bool(value["truncated"]),
-            episode_id=int(value["episode_id"]),
-            step_id=int(value["step_id"]),
+            schema_version=value["schema_version"],
+            board=validate_board(board),
+            score=score,
+            won=value["won"],
+            terminated=value["terminated"],
+            truncated=value["truncated"],
+            episode_id=episode_id,
+            step_id=step_id,
             rng=RNGSnapshot.from_json(value["rng"]),
         )
 
@@ -177,36 +209,52 @@ class OracleEnv:
         *,
         episode_id: int | None = None,
         purpose: str = "train-env",
-        chance_events: tuple[ChanceEvent, ChanceEvent] | None = None,
+        chance_events: Iterable[ChanceEvent | None] | None = None,
     ) -> Observation:
         if episode_id is None:
             episode_id = self.episode_id + 1
         if episode_id < 0:
             raise ValueError("episode_id must be non-negative")
+        events = None if chance_events is None else tuple(chance_events)
+        if events is not None and len(events) != 2:
+            raise ValueError("reset requires exactly two chance events")
+        candidate_rng = self._make_rng(episode_id, purpose)
+        candidate_board: Board = (0,) * 16
+        for event in events if events is not None else (None, None):
+            candidate_board, _ = self._spawn_on_board(candidate_board, event, candidate_rng)
+        candidate_won = max_tile_value(candidate_board) >= (1 << self.win_exponent)
+        candidate_terminated = is_terminated(candidate_board)
+
+        # Commit only after both chance events and all derived state have been
+        # validated.  A malformed reset request therefore cannot partially
+        # replace an already-running episode or advance its RNG.
         self.episode_id = episode_id
         self.step_id = 0
-        self.board = (0,) * 16
+        self.board = candidate_board
         self.score = 0
-        self.won = False
+        self.won = candidate_won
         self.truncated = False
-        self.terminated = False
-        self.rng = self._make_rng(episode_id, purpose)
-        if chance_events is not None and len(chance_events) != 2:
-            raise ValueError("reset requires exactly two chance events")
-        for event in chance_events or (None, None):
-            self._spawn(event)
-        self.terminated = is_terminated(self.board)
+        self.terminated = candidate_terminated
+        self.rng = candidate_rng
         return self.observation()
 
-    def _spawn_on_board(self, board: Board, event: ChanceEvent | None) -> tuple[Board, ChanceEvent]:
+    def _spawn_on_board(
+        self,
+        board: Board,
+        event: ChanceEvent | None,
+        rng: ScientificRNG | None = None,
+    ) -> tuple[Board, ChanceEvent]:
         cells = empty_cells(board)
         if not cells:
             raise ValueError("cannot spawn on a full board")
+        sampler = self.rng if rng is None else rng
         if event is None:
             event = ChanceEvent(
-                empty_rank=self.rng.randbelow(len(cells)),
-                tile_exponent=2 if self.rng.randbelow(10) == 9 else 1,
+                empty_rank=sampler.randbelow(len(cells)),
+                tile_exponent=2 if sampler.randbelow(10) == 9 else 1,
             )
+        if not isinstance(event, ChanceEvent):
+            raise ValueError("chance event must be a ChanceEvent")
         event.validate()
         if event.empty_rank >= len(cells):
             raise ValueError(
@@ -299,14 +347,32 @@ class OracleEnv:
     def restore(self, snapshot: EngineSnapshot | dict[str, Any]) -> None:
         if isinstance(snapshot, dict):
             snapshot = EngineSnapshot.from_json(snapshot)
+        elif isinstance(snapshot, EngineSnapshot):
+            snapshot = EngineSnapshot.from_json(snapshot.to_json())
+        else:
+            raise ValueError("engine snapshot must be an EngineSnapshot or object")
         if snapshot.schema_version != self.SNAPSHOT_SCHEMA_VERSION:
             raise ValueError(f"unsupported engine snapshot: {snapshot.schema_version}")
-        self.board = validate_board(snapshot.board)
+        candidate_board = validate_board(snapshot.board)
+        candidate_rng = ScientificRNG(
+            snapshot.rng.seed,
+            purpose="snapshot-restore",
+            lineage=snapshot.rng.lineage,
+        )
+        candidate_rng.restore(snapshot.rng)
+        if snapshot.score < 0 or snapshot.episode_id < -1 or snapshot.step_id < 0:
+            raise ValueError("engine snapshot counters must be non-negative")
+        if snapshot.terminated != is_terminated(candidate_board):
+            raise ValueError("engine snapshot termination flag does not match the board")
+        reached_win_tile = max_tile_value(candidate_board) >= (1 << self.win_exponent)
+        if snapshot.won != reached_win_tile:
+            raise ValueError("engine snapshot won flag does not match the board")
+
+        self.board = candidate_board
         self.score = snapshot.score
         self.won = snapshot.won
         self.terminated = snapshot.terminated
         self.truncated = snapshot.truncated
         self.episode_id = snapshot.episode_id
         self.step_id = snapshot.step_id
-        self.rng = ScientificRNG(snapshot.rng.seed, purpose="snapshot-restore")
-        self.rng.restore(snapshot.rng)
+        self.rng = candidate_rng

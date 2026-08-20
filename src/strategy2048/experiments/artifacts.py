@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import subprocess
 import time
 from collections.abc import Mapping
@@ -68,23 +69,70 @@ class KnowledgeManifest:
     features: dict[str, Any] = field(default_factory=lambda: {"source": "configured_tuple_set"})
     initialization: dict[str, Any] = field(default_factory=lambda: {"source": "zero"})
     curriculum: dict[str, Any] = field(default_factory=lambda: {"source": "none"})
-    checkpoint: dict[str, Any] = field(default_factory=lambda: {"source": "learner_state_only"})
+    checkpoint: dict[str, Any] = field(
+        default_factory=lambda: {"source": "learner_and_environment_state"}
+    )
     demonstrations: dict[str, Any] = field(default_factory=lambda: {"source": "none"})
     search: dict[str, Any] = field(default_factory=lambda: {"source": "none"})
     tablebase: dict[str, Any] = field(default_factory=lambda: {"source": "none"})
     detectors: dict[str, Any] = field(default_factory=lambda: {"source": "none"})
 
-    FORBIDDEN_FIELDS = (
-        "external_checkpoint",
-        "pretrained",
-        "human",
-        "heuristic",
-        "tablebase",
-        "demonstration",
+    REQUIRED_FIELDS = (
+        "schema_version",
+        "experiment_kind",
+        "observation",
+        "reward",
+        "features",
+        "initialization",
         "curriculum",
-        "pattern",
-        "detector",
+        "checkpoint",
+        "demonstrations",
+        "search",
+        "tablebase",
+        "detectors",
     )
+
+    FORBIDDEN_SINGLE_TOKENS = frozenset(
+        {
+            "pretrained",
+            "human",
+            "heuristic",
+            "tablebase",
+            "demonstration",
+            "demonstrations",
+            "curriculum",
+            "pattern",
+            "detector",
+            "detectors",
+        }
+    )
+    FORBIDDEN_TOKEN_SETS = (
+        frozenset({"external", "checkpoint"}),
+        frozenset({"external", "checkpoints"}),
+        frozenset({"pre", "trained"}),
+    )
+    # Backward-compatible name for callers that inspect the firewall terms.
+    FORBIDDEN_FIELDS = tuple(sorted(FORBIDDEN_SINGLE_TOKENS))
+
+    @staticmethod
+    def _normalized_tokens(value: object) -> frozenset[str]:
+        """Normalize spelling separators before applying the firewall.
+
+        A Discovery source must not become admissible merely by changing
+        ``external_checkpoint`` to ``external checkpoint`` or
+        ``external-checkpoint``.  Keeping this normalization at the firewall
+        boundary also makes nested keys and values follow one contract.
+        """
+
+        raw = canonical_json(value)
+        split_camel = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", raw)
+        return frozenset(re.findall(r"[a-z0-9]+", split_camel.casefold()))
+
+    @staticmethod
+    def _compact_spelling(value: object) -> str:
+        """Collapse case and separators to catch compound spelling bypasses."""
+
+        return re.sub(r"[^a-z0-9]+", "", canonical_json(value).casefold())
 
     def to_json(self) -> dict[str, Any]:
         value = {
@@ -123,8 +171,22 @@ class KnowledgeManifest:
         }
         forbidden: list[str] = []
         for field_name, value in fields.items():
-            text = canonical_json(value).lower()
-            if any(token in text for token in self.FORBIDDEN_FIELDS):
+            tokens = self._normalized_tokens(value)
+            compact = self._compact_spelling(value)
+            contains_forbidden_stem = any(
+                forbidden in token for token in tokens for forbidden in self.FORBIDDEN_SINGLE_TOKENS
+            )
+            contains_external_checkpoint = any("external" in token for token in tokens) and (
+                any("checkpoint" in token for token in tokens)
+                or ({"check", "point"} <= tokens)
+                or ({"check", "points"} <= tokens)
+            )
+            if (
+                contains_forbidden_stem
+                or any(required <= tokens for required in self.FORBIDDEN_TOKEN_SETS)
+                or contains_external_checkpoint
+                or "externalcheckpoint" in compact
+            ):
                 forbidden.append(field_name)
         if self.initialization.get("source") not in {"zero", "optimistic"}:
             forbidden.append("initialization")
@@ -140,23 +202,21 @@ class KnowledgeManifest:
             raise ArtifactError("knowledge manifest must be an object")
         if value.get("schema_version") != "knowledge-manifest-v1":
             raise ArtifactError("unsupported knowledge manifest schema")
-        kwargs = {
-            field_name: dict(value[field_name])
-            for field_name in (
-                "observation",
-                "reward",
-                "features",
-                "initialization",
-                "curriculum",
-                "checkpoint",
-                "demonstrations",
-                "search",
-                "tablebase",
-                "detectors",
+        missing = [field_name for field_name in cls.REQUIRED_FIELDS if field_name not in value]
+        if missing:
+            raise ArtifactError(
+                "knowledge manifest is missing required fields: " + ", ".join(missing)
             )
-            if field_name in value
-        }
-        manifest = cls(experiment_kind=str(value["experiment_kind"]), **kwargs)
+        unknown = sorted(set(value) - set(cls.REQUIRED_FIELDS))
+        if unknown:
+            raise ArtifactError("knowledge manifest contains unknown fields: " + ", ".join(unknown))
+        if not isinstance(value["experiment_kind"], str):
+            raise ArtifactError("knowledge manifest experiment_kind must be a string")
+        field_names = cls.REQUIRED_FIELDS[2:]
+        if any(not isinstance(value[field_name], dict) for field_name in field_names):
+            raise ArtifactError("knowledge manifest source fields must be objects")
+        kwargs = {field_name: dict(value[field_name]) for field_name in field_names}
+        manifest = cls(experiment_kind=value["experiment_kind"], **kwargs)
         manifest.validate()
         return manifest
 

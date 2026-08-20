@@ -4,7 +4,7 @@ from collections import Counter
 
 import pytest
 
-from strategy2048.rng.stream import ScientificRNG, derive_seed, rng_for
+from strategy2048.rng.stream import RNGSnapshot, ScientificRNG, derive_seed, rng_for
 
 
 def test_domain_and_environment_derivation_are_stable_and_distinct() -> None:
@@ -26,6 +26,50 @@ def test_snapshot_restore_replays_raw_stream_exactly() -> None:
 
     assert prefix
     assert [restored.raw_uint64() for _ in range(10)] == continuation
+    assert restored.lineage == snapshot.lineage
+
+
+def test_legacy_rng_snapshot_without_lineage_remains_replayable() -> None:
+    rng = ScientificRNG(7)
+    rng.raw_uint64()
+    value = rng.snapshot().to_json()
+    value["schema_version"] = "rng-v1"
+    value.pop("lineage")
+
+    snapshot = RNGSnapshot.from_json(value)
+    restored = ScientificRNG(snapshot.seed)
+    restored.restore(snapshot)
+
+    assert restored.counter == 1
+    assert restored.lineage["purpose"] == "legacy-snapshot"
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    [("seed", "7"), ("counter", 1.5), ("counter", True), ("state", [])],
+)
+def test_rng_snapshot_rejects_coerced_json_types(field_name, invalid_value) -> None:
+    value = ScientificRNG(7).snapshot().to_json()
+    value[field_name] = invalid_value
+
+    with pytest.raises(ValueError):
+        RNGSnapshot.from_json(value)
+
+
+def test_rng_v2_snapshot_requires_complete_lineage() -> None:
+    value = ScientificRNG(7).snapshot().to_json()
+    value["lineage"] = {}
+
+    with pytest.raises(ValueError, match="complete field set"):
+        RNGSnapshot.from_json(value)
+
+
+def test_rng_snapshot_rejects_unknown_fields() -> None:
+    value = ScientificRNG(7).snapshot().to_json()
+    value["unexpected"] = True
+
+    with pytest.raises(ValueError, match="unknown fields"):
+        RNGSnapshot.from_json(value)
 
 
 def test_randbelow_is_bounded_and_statistically_uniform() -> None:

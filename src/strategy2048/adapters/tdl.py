@@ -156,7 +156,8 @@ class TDLAdapter:
         except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
             raise TDLAdapterError("TDL process invocation failed") from exc
         result = self._parse_output(completed.stdout)
-        if not self.expected_commit.startswith(str(result["reported_revision"])):
+        reported_revision = str(result["reported_revision"])
+        if len(reported_revision) < 7 or not self.expected_commit.startswith(reported_revision):
             raise TDLAdapterError("TDL banner revision does not match the verified source commit")
         result["command"] = command
         return TDLReport(

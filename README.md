@@ -31,6 +31,11 @@ summaries, and a KnowledgeManifest. Discovery runs reject human patterns,
 handcrafted heuristics, tablebases, demonstrations, pretrained checkpoints,
 and contaminated curriculum.
 
+Checkpoint metadata v2 stores the complete learner state together with an
+engine snapshot and RNG lineage. Restore validates the whole pair before
+changing the live learner and returns the environment snapshot for explicit
+resume.
+
 The TDL adapter is an external provenance boundary. TDL results are labeled
 `tdl_native_rules` and are never silently compared as oracle-compatible.
 

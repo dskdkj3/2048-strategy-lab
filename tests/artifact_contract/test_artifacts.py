@@ -31,6 +31,21 @@ def test_discovery_manifest_allows_zero_and_optimistic_initialization() -> None:
     [
         ("features", {"source": "corner_heuristic"}),
         ("checkpoint", {"source": "external_checkpoint"}),
+        ("checkpoint", {"source": "external checkpoint"}),
+        ("checkpoint", {"source": "external-checkpoint"}),
+        ("checkpoint", {"source": "externalCheckpoint"}),
+        ("checkpoint", {"source": "externalcheckpoint"}),
+        ("checkpoint", {"source": "external_check_point"}),
+        ("checkpoint", {"source": "external-check-point"}),
+        ("checkpoint", {"source": "external check point"}),
+        ("checkpoint", {"source": "externalCheckPoint"}),
+        ("checkpoint", {"source": "externalcheckPoint"}),
+        ("checkpoint", {"source": "externalcheck_point"}),
+        ("checkpoint", {"source": "external-checkPoint"}),
+        ("checkpoint", {"source": "externalcheckPoints"}),
+        ("checkpoint", {"source": "externalcheck_points"}),
+        ("checkpoint", {"source": "external-check-points"}),
+        ("checkpoint", {"source": "externalcheckPointed"}),
         ("curriculum", {"source": "human_pattern_curriculum"}),
         ("tablebase", {"source": "tablebase"}),
     ],
@@ -41,6 +56,22 @@ def test_discovery_manifest_rejects_forbidden_knowledge(field: str, value: dict[
 
     with pytest.raises(KnowledgeBoundaryError):
         manifest.validate()
+
+
+def test_manifest_from_json_requires_the_complete_schema_shape() -> None:
+    value = KnowledgeManifest().to_json()
+    del value["detectors"]
+
+    with pytest.raises(ValueError, match="missing required fields"):
+        KnowledgeManifest.from_json(value)
+
+
+def test_manifest_from_json_rejects_unknown_fields() -> None:
+    value = KnowledgeManifest().to_json()
+    value["renamed-human-pattern"] = {"source": "none"}
+
+    with pytest.raises(ValueError, match="unknown fields"):
+        KnowledgeManifest.from_json(value)
 
 
 def test_artifact_store_writes_versioned_manifests(tmp_path) -> None:

@@ -46,24 +46,31 @@ class ReferenceBatch:
         self.root_seed = root_seed
         self.purpose = purpose
         self.environment_ids = ids
-        self.envs = {
-            environment_id: OracleEnv(
-                root_seed=root_seed,
-                environment_id=environment_id,
-                win_tile=win_tile,
-                max_steps=max_steps,
-            )
-            for environment_id in ids
-        }
+        self.win_tile = win_tile
+        self.max_steps = max_steps
+        self.envs = {environment_id: self._new_env(environment_id) for environment_id in ids}
+
+    def _new_env(self, environment_id: str) -> OracleEnv:
+        return OracleEnv(
+            root_seed=self.root_seed,
+            environment_id=environment_id,
+            win_tile=self.win_tile,
+            max_steps=self.max_steps,
+        )
 
     def reset(self, *, episode_ids: dict[str, int] | None = None) -> dict[str, Observation]:
         episode_ids = episode_ids or {}
-        return {
-            environment_id: self.envs[environment_id].reset(
+        candidates = {
+            environment_id: self._new_env(environment_id) for environment_id in self.environment_ids
+        }
+        observations = {
+            environment_id: candidates[environment_id].reset(
                 episode_id=episode_ids.get(environment_id, 0), purpose=self.purpose
             )
             for environment_id in self.environment_ids
         }
+        self.envs = candidates
+        return observations
 
     def step(
         self,
@@ -93,18 +100,28 @@ class ReferenceBatch:
 
     def restore(self, snapshot: BatchSnapshot | dict[str, Any]) -> None:
         if isinstance(snapshot, dict):
+            if set(snapshot) != {"schema_version", "environments"}:
+                raise ValueError("batch snapshot must contain the complete field set")
             if snapshot.get("schema_version") != self.SNAPSHOT_SCHEMA_VERSION:
                 raise ValueError("unsupported batch snapshot schema")
-            raw_envs = snapshot.get("environments", {})
+            raw_envs = snapshot["environments"]
             if not isinstance(raw_envs, dict):
                 raise ValueError("batch environments must be an object")
             snapshot = BatchSnapshot(
-                schema_version=str(snapshot["schema_version"]),
+                schema_version=snapshot["schema_version"],
                 environments={
                     key: EngineSnapshot.from_json(value) for key, value in raw_envs.items()
                 },
             )
+        elif not isinstance(snapshot, BatchSnapshot):
+            raise ValueError("batch snapshot must be a BatchSnapshot or object")
+        if snapshot.schema_version != self.SNAPSHOT_SCHEMA_VERSION:
+            raise ValueError("unsupported batch snapshot schema")
         if set(snapshot.environments) != set(self.environment_ids):
             raise ValueError("batch environment ids differ from snapshot")
+        candidates = {
+            environment_id: self._new_env(environment_id) for environment_id in self.environment_ids
+        }
         for environment_id in self.environment_ids:
-            self.envs[environment_id].restore(snapshot.environments[environment_id])
+            candidates[environment_id].restore(snapshot.environments[environment_id])
+        self.envs = candidates

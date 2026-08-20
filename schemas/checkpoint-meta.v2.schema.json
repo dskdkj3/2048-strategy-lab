@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "agent_type",
+    "config_hash",
+    "learner_config",
+    "array_shape",
+    "array_dtype",
+    "counters",
+    "state_hash",
+    "environment",
+    "checkpoint_hash"
+  ],
+  "properties": {
+    "schema_version": {"const": "checkpoint-meta-v2"},
+    "agent_type": {"type": "string"},
+    "config_hash": {"type": "string"},
+    "learner_config": {
+      "type": "object",
+      "required": ["alpha", "gamma", "optimistic_initialization", "value_function"],
+      "properties": {
+        "alpha": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "gamma": {"type": "number", "minimum": 0, "maximum": 1},
+        "optimistic_initialization": {"type": "number"},
+        "value_function": {
+          "type": "object",
+          "required": [
+            "tuple_source",
+            "tuples",
+            "tuple_length",
+            "value_cardinality",
+            "symmetry",
+            "initial_value"
+          ],
+          "properties": {
+            "tuple_source": {"enum": ["default-general-local", "explicit"]},
+            "tuples": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"type": "integer", "minimum": 0, "maximum": 15}
+              }
+            },
+            "tuple_length": {"type": "integer", "minimum": 1},
+            "value_cardinality": {"type": "integer", "minimum": 2},
+            "symmetry": {"type": "boolean"},
+            "initial_value": {"type": "number"}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "array_shape": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"type": "integer", "minimum": 1}
+    },
+    "array_dtype": {"type": "string"},
+    "counters": {
+      "type": "object",
+      "required": [
+        "action_value_calls",
+        "tuple_lookups",
+        "updates",
+        "tuple_updates",
+        "td_error_abs_sum"
+      ],
+      "properties": {
+        "action_value_calls": {"type": "integer", "minimum": 0},
+        "tuple_lookups": {"type": "integer", "minimum": 0},
+        "updates": {"type": "integer", "minimum": 0},
+        "tuple_updates": {"type": "integer", "minimum": 0},
+        "td_error_abs_sum": {"type": "number", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "state_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "environment": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "board",
+        "score",
+        "won",
+        "terminated",
+        "truncated",
+        "episode_id",
+        "step_id",
+        "rng"
+      ],
+      "properties": {
+        "schema_version": {"const": "engine-snapshot-v1"},
+        "board": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "score": {"type": "integer", "minimum": 0},
+        "won": {"type": "boolean"},
+        "terminated": {"type": "boolean"},
+        "truncated": {"type": "boolean"},
+        "episode_id": {"type": "integer", "minimum": -1},
+        "step_id": {"type": "integer", "minimum": 0},
+        "rng": {
+          "type": "object",
+          "required": [
+            "schema_version",
+            "bit_generator",
+            "seed",
+            "counter",
+            "state",
+            "lineage"
+          ],
+          "properties": {
+            "schema_version": {"const": "rng-v2"},
+            "bit_generator": {"const": "PCG64DXSM"},
+            "seed": {"type": "integer", "minimum": 0},
+            "counter": {"type": "integer", "minimum": 0},
+            "state": {"type": "object"},
+            "lineage": {
+              "type": "object",
+              "required": [
+                "root_seed",
+                "purpose",
+                "environment_id",
+                "episode_id",
+                "derivation_schema"
+              ],
+              "properties": {
+                "root_seed": {"type": ["string", "null"]},
+                "purpose": {"type": "string", "minLength": 1},
+                "environment_id": {"type": ["string", "null"]},
+                "episode_id": {"type": ["integer", "null"], "minimum": 0},
+                "derivation_schema": {"type": ["string", "null"]}
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "checkpoint_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": false
+}

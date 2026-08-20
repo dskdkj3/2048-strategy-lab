@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import os
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -13,8 +15,9 @@ from typing import Any
 import numpy as np
 
 from strategy2048.agents.protocol import EvaluationMode
-from strategy2048.engine.oracle import Observation, StepResult
+from strategy2048.engine.oracle import EngineSnapshot, Observation, OracleEnv, StepResult
 from strategy2048.experiments.artifacts import KnowledgeManifest, canonical_json
+from strategy2048.rng.stream import RNG_SCHEMA_VERSION
 from strategy2048.rules.core import Action, Board, legal_actions, move_without_spawn, validate_board
 
 CoordinateTuple = tuple[int, ...]
@@ -72,13 +75,43 @@ class LearningCounters:
     def from_json(cls, value: object) -> LearningCounters:
         if not isinstance(value, dict):
             raise ValueError("learning counters must be an object")
-        return cls(
-            action_value_calls=int(value.get("action_value_calls", 0)),
-            tuple_lookups=int(value.get("tuple_lookups", 0)),
-            updates=int(value.get("updates", 0)),
-            tuple_updates=int(value.get("tuple_updates", 0)),
-            td_error_abs_sum=float(value.get("td_error_abs_sum", 0.0)),
+        required = {
+            "action_value_calls",
+            "tuple_lookups",
+            "updates",
+            "tuple_updates",
+            "td_error_abs_sum",
+        }
+        if set(value) != required:
+            raise ValueError("learning counters must contain the complete field set")
+        integer_fields = (
+            "action_value_calls",
+            "tuple_lookups",
+            "updates",
+            "tuple_updates",
         )
+        if any(type(value[field_name]) is not int for field_name in integer_fields):
+            raise ValueError("learning count fields must be integers")
+        error_sum = value["td_error_abs_sum"]
+        if isinstance(error_sum, bool) or not isinstance(error_sum, (int, float)):
+            raise ValueError("learning td_error_abs_sum must be a number")
+        counters = cls(
+            action_value_calls=value["action_value_calls"],
+            tuple_lookups=value["tuple_lookups"],
+            updates=value["updates"],
+            tuple_updates=value["tuple_updates"],
+            td_error_abs_sum=float(error_sum),
+        )
+        if (
+            counters.action_value_calls < 0
+            or counters.tuple_lookups < 0
+            or counters.updates < 0
+            or counters.tuple_updates < 0
+            or counters.td_error_abs_sum < 0
+            or not math.isfinite(counters.td_error_abs_sum)
+        ):
+            raise ValueError("learning counters must be finite and non-negative")
+        return counters
 
 
 class TupleValueFunction:
@@ -241,32 +274,75 @@ class TDLearner:
                 "value": self.optimistic_initialization,
             },
             curriculum={"source": "none"},
-            checkpoint={"source": "learner_state_only", "format": "npz-json"},
+            checkpoint={
+                "source": "learner_and_environment_state",
+                "format": "npz-json",
+                "schema_version": "checkpoint-meta-v2",
+            },
             demonstrations={"source": "none"},
             search={"source": "none", "nodes": 0},
             tablebase={"source": "none"},
             detectors={"source": "none"},
         )
 
-    def checkpoint_metadata(self, config_hash: str = "") -> dict[str, Any]:
+    def learner_config(self) -> dict[str, Any]:
         return {
-            "schema_version": "checkpoint-meta-v1",
+            "alpha": self.alpha,
+            "gamma": self.gamma,
+            "optimistic_initialization": self.optimistic_initialization,
+            "value_function": self.value_function.config(),
+        }
+
+    def _state_hash_for(self, tables: np.ndarray, counters: LearningCounters) -> str:
+        digest = hashlib.sha256()
+        digest.update(
+            canonical_json(
+                {
+                    "agent_type": self.agent_type,
+                    "learner_config": self.learner_config(),
+                    "counters": counters.to_json(),
+                }
+            ).encode("utf-8")
+        )
+        digest.update(tables.tobytes(order="C"))
+        return digest.hexdigest()
+
+    def state_hash(self) -> str:
+        return self._state_hash_for(self.value_function.tables, self.counters)
+
+    @staticmethod
+    def _checkpoint_hash(metadata: dict[str, Any], tables: np.ndarray) -> str:
+        digest = hashlib.sha256()
+        digest.update(canonical_json(metadata).encode("utf-8"))
+        digest.update(tables.tobytes(order="C"))
+        return digest.hexdigest()
+
+    def checkpoint_metadata(
+        self,
+        config_hash: str,
+        environment_snapshot: EngineSnapshot,
+    ) -> dict[str, Any]:
+        metadata = {
+            "schema_version": "checkpoint-meta-v2",
             "agent_type": self.agent_type,
             "config_hash": config_hash,
-            "learner_config": {
-                "alpha": self.alpha,
-                "gamma": self.gamma,
-                "optimistic_initialization": self.optimistic_initialization,
-                "value_function": self.value_function.config(),
-            },
+            "learner_config": self.learner_config(),
             "array_shape": list(self.value_function.tables.shape),
             "array_dtype": str(self.value_function.tables.dtype),
             "counters": self.counters.to_json(),
-            "state_hash": self.value_function.state_hash(),
+            "state_hash": self.state_hash(),
+            "environment": environment_snapshot.to_json(),
         }
+        metadata["checkpoint_hash"] = self._checkpoint_hash(metadata, self.value_function.tables)
+        return metadata
 
     def save_checkpoint(
-        self, directory: str | Path, step: int, *, config_hash: str = ""
+        self,
+        directory: str | Path,
+        step: int,
+        *,
+        config_hash: str,
+        environment_snapshot: EngineSnapshot,
     ) -> tuple[Path, Path]:
         if step < 0:
             raise ValueError("checkpoint step must be non-negative")
@@ -274,45 +350,97 @@ class TDLearner:
         destination.mkdir(parents=True, exist_ok=True)
         array_path = destination / f"{step}.npz"
         metadata_path = destination / f"{step}.json"
-        np.savez_compressed(array_path, tables=self.value_function.tables)
-        metadata_path.write_text(
-            json.dumps(self.checkpoint_metadata(config_hash), sort_keys=True, indent=2) + "\n",
+        temporary_array = destination / f".{step}.tmp-{os.getpid()}.npz"
+        temporary_metadata = destination / f".{step}.tmp-{os.getpid()}.json"
+        np.savez_compressed(temporary_array, tables=self.value_function.tables)
+        temporary_metadata.write_text(
+            json.dumps(
+                self.checkpoint_metadata(config_hash, environment_snapshot),
+                sort_keys=True,
+                indent=2,
+            )
+            + "\n",
             encoding="utf-8",
         )
+        temporary_array.replace(array_path)
+        temporary_metadata.replace(metadata_path)
         return array_path, metadata_path
 
     def restore_checkpoint(
         self, directory: str | Path, step: int, *, config_hash: str = ""
-    ) -> None:
+    ) -> EngineSnapshot:
         destination = Path(directory)
         array_path = destination / f"{step}.npz"
         metadata_path = destination / f"{step}.json"
         if not array_path.is_file() or not metadata_path.is_file():
             raise FileNotFoundError(f"checkpoint pair not found for step {step}")
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        if metadata.get("schema_version") != "checkpoint-meta-v1":
+        if not isinstance(metadata, dict):
+            raise ValueError("checkpoint metadata must be an object")
+        required_fields = {
+            "schema_version",
+            "agent_type",
+            "config_hash",
+            "learner_config",
+            "array_shape",
+            "array_dtype",
+            "counters",
+            "state_hash",
+            "environment",
+            "checkpoint_hash",
+        }
+        if set(metadata) != required_fields:
+            raise ValueError("checkpoint metadata must contain the complete v2 field set")
+        if metadata.get("schema_version") != "checkpoint-meta-v2":
             raise ValueError("unsupported checkpoint schema")
         if metadata.get("config_hash", "") != config_hash:
             raise ValueError("checkpoint config hash mismatch")
         if metadata.get("agent_type") != self.agent_type:
             raise ValueError("checkpoint agent type mismatch")
-        if metadata.get("array_shape") != list(self.value_function.tables.shape):
+        learner_config = metadata.get("learner_config")
+        if not isinstance(learner_config, dict) or canonical_json(learner_config) != canonical_json(
+            self.learner_config()
+        ):
+            raise ValueError("checkpoint learner config mismatch")
+        array_shape = metadata.get("array_shape")
+        if not isinstance(array_shape, list) or any(
+            type(dimension) is not int for dimension in array_shape
+        ):
+            raise ValueError("checkpoint table shape must contain integers")
+        if array_shape != list(self.value_function.tables.shape):
             raise ValueError("checkpoint table shape mismatch")
-        if metadata.get("array_dtype") != str(self.value_function.tables.dtype):
+        array_dtype = metadata.get("array_dtype")
+        if not isinstance(array_dtype, str) or array_dtype != str(self.value_function.tables.dtype):
             raise ValueError("checkpoint table dtype mismatch")
+        candidate_counters = LearningCounters.from_json(metadata["counters"])
+        candidate_environment = EngineSnapshot.from_json(metadata["environment"])
+        if candidate_environment.schema_version != OracleEnv.SNAPSHOT_SCHEMA_VERSION:
+            raise ValueError("unsupported checkpoint environment schema")
+        if candidate_environment.rng.schema_version != RNG_SCHEMA_VERSION:
+            raise ValueError("unsupported checkpoint RNG schema")
+        environment_validator = OracleEnv(root_seed=candidate_environment.rng.seed)
+        environment_validator.restore(candidate_environment)
         with np.load(array_path, allow_pickle=False) as archive:
             if set(archive.files) != {"tables"}:
                 raise ValueError("checkpoint contains unexpected arrays")
-            tables = archive["tables"]
+            tables = archive["tables"].copy()
             if (
                 tables.shape != self.value_function.tables.shape
                 or tables.dtype != self.value_function.tables.dtype
             ):
                 raise ValueError("checkpoint array shape or dtype mismatch")
-            self.value_function.tables[...] = tables
-        self.value_function.counters = LearningCounters.from_json(metadata.get("counters", {}))
-        if metadata.get("state_hash") != self.value_function.state_hash():
+        if metadata.get("state_hash") != self._state_hash_for(tables, candidate_counters):
             raise ValueError("checkpoint state hash mismatch")
+        hash_payload = dict(metadata)
+        checkpoint_hash = hash_payload.pop("checkpoint_hash")
+        if not isinstance(checkpoint_hash, str):
+            raise ValueError("checkpoint content hash must be a string")
+        if checkpoint_hash != self._checkpoint_hash(hash_payload, tables):
+            raise ValueError("checkpoint content hash mismatch")
+
+        self.value_function.tables[...] = tables
+        self.value_function.counters = candidate_counters
+        return candidate_environment
 
 
 @dataclass(slots=True)
@@ -339,11 +467,21 @@ class TD1PAgent:
         return self.learner.counters
 
     def save_checkpoint(
-        self, directory: str | Path, step: int, *, config_hash: str = ""
+        self,
+        directory: str | Path,
+        step: int,
+        *,
+        config_hash: str,
+        environment_snapshot: EngineSnapshot,
     ) -> tuple[Path, Path]:
-        return self.learner.save_checkpoint(directory, step, config_hash=config_hash)
+        return self.learner.save_checkpoint(
+            directory,
+            step,
+            config_hash=config_hash,
+            environment_snapshot=environment_snapshot,
+        )
 
     def restore_checkpoint(
         self, directory: str | Path, step: int, *, config_hash: str = ""
-    ) -> None:
-        self.learner.restore_checkpoint(directory, step, config_hash=config_hash)
+    ) -> EngineSnapshot:
+        return self.learner.restore_checkpoint(directory, step, config_hash=config_hash)
