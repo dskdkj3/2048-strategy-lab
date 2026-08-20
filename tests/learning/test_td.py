@@ -61,6 +61,37 @@ def test_zero_and_optimistic_initialization_are_separate_configs() -> None:
     assert optimistic.knowledge_manifest().initialization["source"] == "optimistic"
 
 
+def test_optimistic_total_value_is_distributed_over_active_features() -> None:
+    value_function = TupleValueFunction(optimistic_total_value=10_000.0)
+
+    assert value_function.active_feature_count == 64
+    assert value_function.initial_feature_value == 156.25
+    assert value_function.optimistic_total_value == 10_000.0
+    assert value_function.value((0,) * 16) == 10_000.0
+    assert value_function.config()["active_feature_count"] == 64
+    assert value_function.config()["initial_feature_value"] == 156.25
+
+
+def test_conflicting_total_and_per_feature_initialization_fails_closed() -> None:
+    with pytest.raises(ValueError, match="conflicts"):
+        TupleValueFunction(initial_feature_value=1.0, optimistic_total_value=10.0)
+
+
+def test_read_only_scoring_does_not_change_full_learner_state() -> None:
+    agent = _agent(initial_value=1.0)
+    env = OracleEnv(root_seed="read-only", environment_id="read-only")
+    observation = env.reset(episode_id=0)
+    before_state_hash = agent.learner.state_hash()
+    before_table_hash = agent.learner.table_hash()
+    before_counters = agent.counters.to_json()
+
+    agent.learner.choose_action_read_only(observation)
+
+    assert agent.learner.state_hash() == before_state_hash
+    assert agent.learner.table_hash() == before_table_hash
+    assert agent.counters.to_json() == before_counters
+
+
 def test_checkpoint_round_trip_uses_explicit_arrays(tmp_path) -> None:
     agent = _agent()
     train_td(agent, episodes=1, root_seed="checkpoint", max_steps=20)
@@ -86,6 +117,37 @@ def test_checkpoint_round_trip_uses_explicit_arrays(tmp_path) -> None:
     assert restored.learner.state_hash() == expected_hash
     assert restored.counters.to_json() == expected_counters
     assert restored_environment == expected_environment
+
+
+def test_checkpoint_v2_legacy_learner_config_remains_loadable(tmp_path) -> None:
+    source = _agent(initial_value=1.0)
+    _, metadata_path = source.save_checkpoint(
+        tmp_path,
+        1,
+        config_hash="legacy-v2-config",
+        environment_snapshot=_snapshot("legacy-v2-config"),
+    )
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    legacy_config = source.learner._legacy_learner_config()
+    metadata["learner_config"] = legacy_config
+    with np.load(tmp_path / "1.npz", allow_pickle=False) as archive:
+        tables = archive["tables"].copy()
+    counters = source.counters
+    metadata["state_hash"] = source.learner._state_hash_for_config(tables, counters, legacy_config)
+    hash_payload = dict(metadata)
+    hash_payload.pop("checkpoint_hash")
+    metadata["checkpoint_hash"] = TDLearner._checkpoint_hash(hash_payload, tables)
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    schema = json.loads(
+        (REPOSITORY_ROOT / "schemas/checkpoint-meta.v2.schema.json").read_text(encoding="utf-8")
+    )
+    jsonschema.validate(metadata, schema)
+
+    restored = _agent(initial_value=1.0)
+    restored.restore_checkpoint(tmp_path, 1, config_hash="legacy-v2-config")
+
+    assert restored.learner.state_hash() == source.learner.state_hash()
 
 
 def test_checkpoint_v2_schema_rejects_invalid_learner_config_type(tmp_path) -> None:

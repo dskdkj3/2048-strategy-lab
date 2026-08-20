@@ -26,7 +26,13 @@ class KnowledgeBoundaryError(ArtifactError):
 
 
 def canonical_json(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
 
 
 def config_hash(config: Mapping[str, Any]) -> str:
@@ -95,6 +101,7 @@ class KnowledgeManifest:
     FORBIDDEN_SINGLE_TOKENS = frozenset(
         {
             "pretrained",
+            "external",
             "human",
             "heuristic",
             "tablebase",

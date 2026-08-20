@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "experiment_id",
+    "output_root",
+    "shared_wall_seconds",
+    "finalization_reserve_seconds",
+    "round_robin_training_chunk",
+    "training_seeds",
+    "evaluation_root_seed",
+    "checkpoint_episodes",
+    "evaluation_episodes_per_checkpoint",
+    "diagnostic_score_milestone",
+    "diagnostic_tile_milestone",
+    "max_training_episodes_per_run",
+    "learner",
+    "arms"
+  ],
+  "properties": {
+    "schema_version": {"const": "discovery-pilot-v1"},
+    "experiment_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "output_root": {"type": "string", "minLength": 1},
+    "shared_wall_seconds": {"const": 900},
+    "finalization_reserve_seconds": {"const": 10.0},
+    "round_robin_training_chunk": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50
+    },
+    "training_seeds": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+      }
+    },
+    "evaluation_root_seed": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "checkpoint_episodes": {"const": [0, 50, 200]},
+    "evaluation_episodes_per_checkpoint": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50
+    },
+    "diagnostic_score_milestone": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "diagnostic_tile_milestone": {
+      "enum": [128, 256, 512, 1024, 2048, 4096]
+    },
+    "max_training_episodes_per_run": {"const": 200},
+    "max_steps_per_episode": {
+      "type": ["integer", "null"],
+      "minimum": 1
+    },
+    "learner": {
+      "type": "object",
+      "required": ["alpha", "gamma", "symmetry", "value_cardinality"],
+      "properties": {
+        "alpha": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "gamma": {"type": "number", "minimum": 0, "maximum": 1},
+        "symmetry": {"type": "boolean"},
+        "value_cardinality": {"type": "integer", "minimum": 2},
+        "tuples": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "integer", "minimum": 0, "maximum": 15}
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "arms": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["id", "initialization"],
+        "properties": {
+          "id": {"enum": ["td0_zero", "td0_optimistic"]},
+          "initialization": {"enum": ["zero", "optimistic"]},
+          "optimistic_total_value": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

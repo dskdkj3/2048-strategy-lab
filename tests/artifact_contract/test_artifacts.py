@@ -30,6 +30,7 @@ def test_discovery_manifest_allows_zero_and_optimistic_initialization() -> None:
     ("field", "value"),
     [
         ("features", {"source": "corner_heuristic"}),
+        ("features", {"source": "external"}),
         ("checkpoint", {"source": "external_checkpoint"}),
         ("checkpoint", {"source": "external checkpoint"}),
         ("checkpoint", {"source": "external-checkpoint"}),
@@ -72,6 +73,13 @@ def test_manifest_from_json_rejects_unknown_fields() -> None:
 
     with pytest.raises(ValueError, match="unknown fields"):
         KnowledgeManifest.from_json(value)
+
+
+def test_canonical_json_rejects_non_finite_numbers() -> None:
+    from strategy2048.experiments.artifacts import canonical_json
+
+    with pytest.raises(ValueError, match="Out of range float values"):
+        canonical_json({"value": float("nan")})
 
 
 def test_artifact_store_writes_versioned_manifests(tmp_path) -> None:

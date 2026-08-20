@@ -19,11 +19,19 @@
     "config_hash": {"type": "string"},
     "learner_config": {
       "type": "object",
-      "required": ["alpha", "gamma", "optimistic_initialization", "value_function"],
+      "required": [
+        "alpha",
+        "gamma",
+        "optimistic_initialization",
+        "value_function"
+      ],
       "properties": {
         "alpha": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
         "gamma": {"type": "number", "minimum": 0, "maximum": 1},
         "optimistic_initialization": {"type": "number"},
+        "optimistic_total_value": {"type": "number", "minimum": 0},
+        "active_feature_count": {"type": "integer", "minimum": 1},
+        "initial_feature_value": {"type": "number", "minimum": 0},
         "value_function": {
           "type": "object",
           "required": [
@@ -48,12 +56,59 @@
             "tuple_length": {"type": "integer", "minimum": 1},
             "value_cardinality": {"type": "integer", "minimum": 2},
             "symmetry": {"type": "boolean"},
-            "initial_value": {"type": "number"}
+            "initial_value": {"type": "number", "minimum": 0},
+            "initial_feature_value": {"type": "number", "minimum": 0},
+            "active_feature_count": {"type": "integer", "minimum": 1},
+            "optimistic_total_value": {"type": "number", "minimum": 0}
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "anyOf": [
+                {
+                  "required": [
+                    "initial_feature_value",
+                    "active_feature_count",
+                    "optimistic_total_value"
+                  ]
+                },
+                {
+                  "not": {
+                    "anyOf": [
+                      {"required": ["initial_feature_value"]},
+                      {"required": ["active_feature_count"]},
+                      {"required": ["optimistic_total_value"]}
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "anyOf": [
+            {
+              "required": [
+                "optimistic_total_value",
+                "active_feature_count",
+                "initial_feature_value"
+              ]
+            },
+            {
+              "not": {
+                "anyOf": [
+                  {"required": ["optimistic_total_value"]},
+                  {"required": ["active_feature_count"]},
+                  {"required": ["initial_feature_value"]}
+                ]
+              }
+            }
+          ]
+        }
+      ]
     },
     "array_shape": {
       "type": "array",

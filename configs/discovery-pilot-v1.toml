@@ -1,0 +1,29 @@
+schema_version = "discovery-pilot-v1"
+experiment_id = "discovery-pilot-v1"
+output_root = "artifacts"
+shared_wall_seconds = 900
+finalization_reserve_seconds = 10.0
+round_robin_training_chunk = 10
+training_seeds = ["discovery-train-a-v1", "discovery-train-b-v1"]
+evaluation_root_seed = "discovery-eval-v1"
+checkpoint_episodes = [0, 50, 200]
+evaluation_episodes_per_checkpoint = 50
+diagnostic_score_milestone = 5000
+diagnostic_tile_milestone = 256
+max_training_episodes_per_run = 200
+
+[learner]
+alpha = 0.1
+gamma = 1.0
+symmetry = true
+value_cardinality = 16
+
+[[arms]]
+id = "td0_zero"
+initialization = "zero"
+optimistic_total_value = 0.0
+
+[[arms]]
+id = "td0_optimistic"
+initialization = "optimistic"
+optimistic_total_value = 10000.0

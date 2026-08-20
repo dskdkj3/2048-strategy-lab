@@ -36,15 +36,28 @@ def train_td(
         observation = env.reset(episode_id=episode_id, purpose="train-env")
         started = time.perf_counter()
         while not observation.terminated and not observation.truncated:
-            action = agent.act(observation, EvaluationMode.TRAIN)
+            counter_before = agent.counters.to_json()
+            with metrics.timer("action_selection"):
+                action = agent.act(
+                    observation,
+                    EvaluationMode.TRAIN,
+                    feature_timer=lambda: metrics.timer("feature_value_lookup"),
+                )
             with metrics.timer("rules"):
                 result = env.step(action)
             metrics.increment("env_steps")
-            with metrics.timer("learning"):
-                agent.observe(result, result.observation)
-            metrics.increment(
-                "updates", agent.counters.updates - metrics.counters.get("updates", 0)
-            )
+            with metrics.timer("learning"), metrics.timer("td_update"):
+                agent.observe(
+                    result,
+                    result.observation,
+                    feature_timer=lambda: metrics.timer("feature_value_lookup"),
+                )
+            current = agent.counters.to_json()
+            for name in ("action_value_calls", "tuple_lookups", "updates", "tuple_updates"):
+                before = counter_before.get(name, 0)
+                after = current.get(name, before)
+                if isinstance(before, int) and isinstance(after, int):
+                    metrics.increment(name, after - before)
             observation = result.observation
         elapsed = time.perf_counter() - started
         summary = EpisodeSummary(

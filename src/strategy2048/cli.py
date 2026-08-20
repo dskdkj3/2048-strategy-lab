@@ -18,6 +18,10 @@ from strategy2048.experiments.artifacts import (
     ArtifactStore,
     KnowledgeManifest,
 )
+from strategy2048.experiments.discovery import (
+    run_discovery_pilot,
+    verify_discovery_artifact,
+)
 from strategy2048.experiments.evaluation import evaluate
 from strategy2048.experiments.training import train_td
 from strategy2048.learning.td import TD1PAgent, TDLearner, TupleValueFunction
@@ -60,9 +64,16 @@ def _td_agent(config: dict[str, Any]) -> TD1PAgent:
     initialization = str(config.get("initialization", "zero"))
     if initialization not in {"zero", "optimistic"}:
         raise ValueError("initialization must be zero or optimistic")
-    initial_value = (
-        float(config.get("optimistic_value", 0.0)) if initialization == "optimistic" else 0.0
+    if "optimistic_value" in config:
+        raise ValueError(
+            "optimistic_value is obsolete; use optimistic_total_value so the initial value "
+            "is interpreted as the total active-feature value"
+        )
+    optimistic_total_value = (
+        float(config.get("optimistic_total_value", 0.0)) if initialization == "optimistic" else 0.0
     )
+    if optimistic_total_value < 0:
+        raise ValueError("optimistic_total_value must be non-negative")
     tuple_config = config.get("tuples")
     tuples = (
         tuple(tuple(int(index) for index in item) for item in tuple_config)
@@ -73,14 +84,15 @@ def _td_agent(config: dict[str, Any]) -> TD1PAgent:
         tuples=tuples or TupleValueFunction().tuples,
         value_cardinality=int(config.get("value_cardinality", 16)),
         symmetry=bool(config.get("symmetry", True)),
-        initial_value=initial_value,
+        optimistic_total_value=optimistic_total_value,
     )
     return TD1PAgent(
         TDLearner(
             value_function=value_function,
             alpha=float(config.get("alpha", 0.1)),
             gamma=float(config.get("gamma", 1.0)),
-            optimistic_initialization=initial_value,
+            optimistic_initialization=value_function.initial_value,
+            optimistic_total_value=optimistic_total_value,
         )
     )
 
@@ -160,6 +172,27 @@ def command_profile(args: argparse.Namespace) -> int:
         )
     )
     return 0
+
+
+def command_discovery_pilot(args: argparse.Namespace) -> int:
+    config = _load_toml(args.config)
+    resume_from = args.resume
+    if resume_from == "":
+        resume_from = Path(config.get("output_root", "artifacts")) / str(
+            config.get("experiment_id", "discovery-pilot-v1")
+        )
+    summary = run_discovery_pilot(
+        config,
+        resume_from=resume_from,
+    )
+    print(json.dumps(summary, indent=2, sort_keys=True))
+    return 0 if summary.get("gate") != "contract-failed" else 1
+
+
+def command_discovery_verify(args: argparse.Namespace) -> int:
+    report = verify_discovery_artifact(args.artifact_directory)
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0 if report.get("valid") is True else 1
 
 
 def command_doctor(_: argparse.Namespace) -> int:
@@ -247,6 +280,27 @@ def _parser() -> argparse.ArgumentParser:
         sub = subparsers.add_parser(command_name)
         sub.add_argument("--config", required=True)
         sub.set_defaults(handler=command_handler)
+    discovery = subparsers.add_parser("discovery")
+    discovery_sub = discovery.add_subparsers(dest="discovery_command", required=True)
+    discovery_pilot = discovery_sub.add_parser(
+        "pilot",
+        help="run the diagnostic zero/OI pilot under one shared 900-second budget",
+    )
+    discovery_pilot.add_argument("--config", required=True)
+    discovery_pilot.add_argument(
+        "--resume",
+        nargs="?",
+        const="",
+        metavar="ARTIFACT_DIR",
+        help="explicitly resume a prior artifact; omit the path to use the config output root",
+    )
+    discovery_pilot.set_defaults(handler=command_discovery_pilot)
+    discovery_verify = discovery_sub.add_parser(
+        "verify",
+        help="read-only verification of a Discovery artifact",
+    )
+    discovery_verify.add_argument("artifact_directory")
+    discovery_verify.set_defaults(handler=command_discovery_verify)
     manifest = subparsers.add_parser("manifest")
     manifest_sub = manifest.add_subparsers(dest="manifest_command", required=True)
     manifest_validate = manifest_sub.add_parser("validate")

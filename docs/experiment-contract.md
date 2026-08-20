@@ -15,3 +15,17 @@ The reproducibility class is explicit: the reference single-thread path is
 `deterministic`; execution order changes in external multi-thread baselines are
 not silently claimed deterministic. Evaluation and training use separate
 purpose-derived RNG streams.
+
+Discovery pilot artifacts add a versioned two-arm protocol around this base
+contract. `strategy2048 discovery pilot --config ...` owns one shared
+900-second wall-clock budget across training, frozen evaluation, checkpointing,
+logging, and summary finalization. Protocol v1 charges a versioned 10-second
+finalization reserve inside that same budget. `--resume <artifact-dir>` is explicit: it consumes the saved
+learner/environment/RNG/scheduler state and subtracts the recorded consumed
+wall time, never resetting the budget; the complete read-only verifier must
+pass before any existing checkpoint is restored. `strategy2048 discovery verify
+<artifact-dir>` is a separately timed, read-only recomputation gate; it cannot
+resume training or add evaluation samples. See
+[`discovery-baseline.md`](discovery-baseline.md) for the diagnostic-only result
+gates, fixed score/tile milestones, next-step decision, and Discovery firewall
+boundary.

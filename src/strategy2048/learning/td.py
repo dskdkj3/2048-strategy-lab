@@ -7,7 +7,8 @@ import json
 import math
 import os
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from strategy2048.rng.stream import RNG_SCHEMA_VERSION
 from strategy2048.rules.core import Action, Board, legal_actions, move_without_spawn, validate_board
 
 CoordinateTuple = tuple[int, ...]
+TimerFactory = Callable[[], AbstractContextManager[None]]
 DEFAULT_TUPLES: tuple[CoordinateTuple, ...] = (
     (0, 1, 4, 5),
     (1, 2, 5, 6),
@@ -123,7 +125,9 @@ class TupleValueFunction:
         *,
         value_cardinality: int = 16,
         symmetry: bool = True,
-        initial_value: float = 0.0,
+        initial_value: float | None = None,
+        initial_feature_value: float | None = None,
+        optimistic_total_value: float | None = None,
     ) -> None:
         if not tuples:
             raise ValueError("at least one tuple is required")
@@ -132,13 +136,44 @@ class TupleValueFunction:
             raise ValueError("tuple coordinates must contain board indices 0..15")
         if value_cardinality < 2:
             raise ValueError("value_cardinality must be at least two")
+        if any(len(item) != len(normalized[0]) for item in normalized):
+            raise ValueError("all tuples must have the same length")
         self.tuples = normalized
         self.value_cardinality = value_cardinality
         self.symmetry = symmetry
-        self.initial_value = float(initial_value)
+        active_feature_count = len(normalized) * (8 if symmetry else 1)
+        supplied_feature_value = (
+            initial_feature_value if initial_feature_value is not None else initial_value
+        )
+        if (
+            initial_feature_value is not None
+            and initial_value is not None
+            and not math.isclose(
+                float(initial_feature_value), float(initial_value), rel_tol=0.0, abs_tol=1e-12
+            )
+        ):
+            raise ValueError("initial_value and initial_feature_value must match")
+        if optimistic_total_value is not None:
+            total_value = float(optimistic_total_value)
+            if not math.isfinite(total_value) or total_value < 0:
+                raise ValueError("optimistic_total_value must be finite and non-negative")
+            computed_feature_value = total_value / active_feature_count
+            if supplied_feature_value is not None and not math.isclose(
+                float(supplied_feature_value), computed_feature_value, rel_tol=0.0, abs_tol=1e-12
+            ):
+                raise ValueError(
+                    "initial_feature_value conflicts with optimistic_total_value; "
+                    "provide one initialization value"
+                )
+            initial_value = computed_feature_value
+        else:
+            initial_value = 0.0 if supplied_feature_value is None else float(supplied_feature_value)
+            if not math.isfinite(initial_value) or initial_value < 0:
+                raise ValueError("initial_feature_value must be finite and non-negative")
+            total_value = initial_value * active_feature_count
+        self.initial_value = initial_value
+        self.optimistic_total_value = total_value
         table_size = value_cardinality ** len(normalized[0])
-        if any(len(item) != len(normalized[0]) for item in normalized):
-            raise ValueError("all tuples must have the same length")
         self.tables = np.full((len(normalized), table_size), self.initial_value, dtype=np.float64)
         self.counters = LearningCounters()
 
@@ -150,6 +185,21 @@ class TupleValueFunction:
     def symmetry_orbit_size(self) -> int:
         return 8 if self.symmetry else 1
 
+    @property
+    def active_feature_count(self) -> int:
+        return len(self.tuples) * self.symmetry_orbit_size
+
+    @property
+    def initial_feature_value(self) -> float:
+        """Value assigned to each table cell at initialization.
+
+        ``initial_value`` remains in the checkpoint shape for compatibility,
+        but the explicit name is used by the Discovery protocol so a total
+        optimistic value cannot be mistaken for a per-feature value.
+        """
+
+        return self.initial_value
+
     def config(self) -> dict[str, Any]:
         return {
             "tuple_source": "default-general-local"
@@ -160,6 +210,9 @@ class TupleValueFunction:
             "value_cardinality": self.value_cardinality,
             "symmetry": self.symmetry,
             "initial_value": self.initial_value,
+            "initial_feature_value": self.initial_value,
+            "active_feature_count": self.active_feature_count,
+            "optimistic_total_value": self.optimistic_total_value,
         }
 
     def _index(self, board: Board, coordinates: CoordinateTuple) -> int:
@@ -181,12 +234,21 @@ class TupleValueFunction:
                 features.append((tuple_index, self._index(transformed, coordinates)))
         return features
 
-    def value(self, board: Sequence[int]) -> float:
-        total = 0.0
-        for tuple_index, feature_index in self._feature_indices(board):
-            total += float(self.tables[tuple_index, feature_index])
-            self.counters.tuple_lookups += 1
-        return total
+    def value(
+        self,
+        board: Sequence[int],
+        *,
+        count: bool = True,
+        timer: TimerFactory | None = None,
+    ) -> float:
+        context = timer() if timer is not None else nullcontext()
+        with context:
+            total = 0.0
+            for tuple_index, feature_index in self._feature_indices(board):
+                total += float(self.tables[tuple_index, feature_index])
+                if count:
+                    self.counters.tuple_lookups += 1
+            return total
 
     def update(self, board: Sequence[int], target: float, alpha: float) -> float:
         if alpha <= 0:
@@ -217,48 +279,133 @@ class TDLearner:
     value_function: TupleValueFunction = field(default_factory=TupleValueFunction)
     alpha: float = 0.1
     gamma: float = 1.0
-    optimistic_initialization: float = 0.0
+    optimistic_initialization: float | None = None
+    optimistic_total_value: float | None = None
     agent_type: str = "discovery"
 
     def __post_init__(self) -> None:
-        if self.alpha <= 0 or self.alpha > 1:
+        if not math.isfinite(self.alpha) or self.alpha <= 0 or self.alpha > 1:
             raise ValueError("alpha must be in (0, 1]")
-        if self.gamma < 0 or self.gamma > 1:
+        if not math.isfinite(self.gamma) or self.gamma < 0 or self.gamma > 1:
             raise ValueError("gamma must be in [0, 1]")
-        if self.optimistic_initialization != self.value_function.initial_value:
+        if self.optimistic_initialization is None:
+            self.optimistic_initialization = self.value_function.initial_feature_value
+        assert self.optimistic_initialization is not None
+        if not math.isfinite(self.optimistic_initialization) or self.optimistic_initialization < 0:
+            raise ValueError("optimistic_initialization must be finite and non-negative")
+        if not math.isclose(
+            self.optimistic_initialization,
+            self.value_function.initial_feature_value,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ):
             raise ValueError("optimistic initialization must match value table initialization")
+        value_function_total = self.value_function.optimistic_total_value
+        if self.optimistic_total_value is not None and not math.isclose(
+            float(self.optimistic_total_value), value_function_total, rel_tol=0.0, abs_tol=1e-12
+        ):
+            raise ValueError("optimistic total value must match value table initialization")
+        self.optimistic_total_value = value_function_total
 
     @property
     def counters(self) -> LearningCounters:
         return self.value_function.counters
 
-    def action_value(self, board: Sequence[int], action: Action) -> float:
-        self.counters.action_value_calls += 1
+    def action_value(
+        self,
+        board: Sequence[int],
+        action: Action,
+        *,
+        count: bool = True,
+        feature_timer: TimerFactory | None = None,
+    ) -> float:
+        if count:
+            self.counters.action_value_calls += 1
         move = move_without_spawn(board, action)
-        return self.value_function.value(move.afterstate)
+        return self.value_function.value(
+            move.afterstate,
+            count=count,
+            timer=feature_timer,
+        )
 
-    def choose_action(self, observation: Observation) -> Action:
+    def choose_action(
+        self,
+        observation: Observation,
+        *,
+        count: bool = True,
+        feature_timer: TimerFactory | None = None,
+    ) -> Action:
         if not observation.legal_actions:
             raise RuntimeError("TD learner received an observation with no legal action")
         scored = [
-            (self.action_value(observation.board, action), -int(action), action)
+            (
+                self.action_value(
+                    observation.board,
+                    action,
+                    count=count,
+                    feature_timer=feature_timer,
+                ),
+                -int(action),
+                action,
+            )
             for action in observation.legal_actions
         ]
         return max(scored, key=lambda item: (item[0], item[1]))[2]
 
-    def next_value(self, board: Board) -> float:
+    def next_value(
+        self,
+        board: Board,
+        *,
+        count: bool = True,
+        feature_timer: TimerFactory | None = None,
+    ) -> float:
         actions = legal_actions(board)
         if not actions:
             return 0.0
-        return max(self.action_value(board, action) for action in actions)
+        return max(
+            self.action_value(
+                board,
+                action,
+                count=count,
+                feature_timer=feature_timer,
+            )
+            for action in actions
+        )
 
-    def observe(self, transition: StepResult, next_observation: Observation) -> float:
+    def read_only_action_value(
+        self,
+        board: Sequence[int],
+        action: Action,
+        *,
+        feature_timer: TimerFactory | None = None,
+    ) -> float:
+        """Score an action without changing learner tables or counters."""
+
+        return self.action_value(board, action, count=False, feature_timer=feature_timer)
+
+    def choose_action_read_only(
+        self,
+        observation: Observation,
+        *,
+        feature_timer: TimerFactory | None = None,
+    ) -> Action:
+        """Choose an action through the frozen, non-counting scoring path."""
+
+        return self.choose_action(observation, count=False, feature_timer=feature_timer)
+
+    def observe(
+        self,
+        transition: StepResult,
+        next_observation: Observation,
+        *,
+        feature_timer: TimerFactory | None = None,
+    ) -> float:
         if not transition.valid:
             return 0.0
         continuation = (
             0.0
             if next_observation.terminated or next_observation.truncated
-            else self.next_value(next_observation.board)
+            else self.next_value(next_observation.board, feature_timer=feature_timer)
         )
         target = float(transition.score_delta) + self.gamma * continuation
         return self.value_function.update(transition.afterstate, target, self.alpha)
@@ -272,6 +419,9 @@ class TDLearner:
             initialization={
                 "source": "optimistic" if self.optimistic_initialization else "zero",
                 "value": self.optimistic_initialization,
+                "initial_feature_value": self.value_function.initial_feature_value,
+                "optimistic_total_value": self.optimistic_total_value,
+                "active_feature_count": self.value_function.active_feature_count,
             },
             curriculum={"source": "none"},
             checkpoint={
@@ -290,16 +440,42 @@ class TDLearner:
             "alpha": self.alpha,
             "gamma": self.gamma,
             "optimistic_initialization": self.optimistic_initialization,
+            "optimistic_total_value": self.optimistic_total_value,
+            "active_feature_count": self.value_function.active_feature_count,
+            "initial_feature_value": self.value_function.initial_feature_value,
             "value_function": self.value_function.config(),
         }
 
-    def _state_hash_for(self, tables: np.ndarray, counters: LearningCounters) -> str:
+    def _legacy_learner_config(self) -> dict[str, Any]:
+        """Return the pre-Discovery learner config used by checkpoint-meta-v2.
+
+        The OI migration adds explicit total/per-feature fields, but existing
+        v2 checkpoints only recorded ``initial_value``. Keep that metadata
+        interpretation available so the schema version remains loadable.
+        """
+
+        value_function = self.value_function.config()
+        for name in ("initial_feature_value", "active_feature_count", "optimistic_total_value"):
+            value_function.pop(name, None)
+        return {
+            "alpha": self.alpha,
+            "gamma": self.gamma,
+            "optimistic_initialization": self.optimistic_initialization,
+            "value_function": value_function,
+        }
+
+    def _state_hash_for_config(
+        self,
+        tables: np.ndarray,
+        counters: LearningCounters,
+        learner_config: dict[str, Any],
+    ) -> str:
         digest = hashlib.sha256()
         digest.update(
             canonical_json(
                 {
                     "agent_type": self.agent_type,
-                    "learner_config": self.learner_config(),
+                    "learner_config": learner_config,
                     "counters": counters.to_json(),
                 }
             ).encode("utf-8")
@@ -307,8 +483,18 @@ class TDLearner:
         digest.update(tables.tobytes(order="C"))
         return digest.hexdigest()
 
+    def _state_hash_for(self, tables: np.ndarray, counters: LearningCounters) -> str:
+        return self._state_hash_for_config(tables, counters, self.learner_config())
+
     def state_hash(self) -> str:
         return self._state_hash_for(self.value_function.tables, self.counters)
+
+    def table_hash(self) -> str:
+        """Hash the value tables independently from counters and config."""
+
+        digest = hashlib.sha256()
+        digest.update(self.value_function.tables.tobytes(order="C"))
+        return digest.hexdigest()
 
     @staticmethod
     def _checkpoint_hash(metadata: dict[str, Any], tables: np.ndarray) -> str:
@@ -398,9 +584,14 @@ class TDLearner:
         if metadata.get("agent_type") != self.agent_type:
             raise ValueError("checkpoint agent type mismatch")
         learner_config = metadata.get("learner_config")
-        if not isinstance(learner_config, dict) or canonical_json(learner_config) != canonical_json(
-            self.learner_config()
-        ):
+        legacy_learner_config = self._legacy_learner_config()
+        if not isinstance(learner_config, dict):
+            raise ValueError("checkpoint learner config mismatch")
+        if canonical_json(learner_config) == canonical_json(self.learner_config()):
+            expected_learner_config = self.learner_config()
+        elif canonical_json(learner_config) == canonical_json(legacy_learner_config):
+            expected_learner_config = legacy_learner_config
+        else:
             raise ValueError("checkpoint learner config mismatch")
         array_shape = metadata.get("array_shape")
         if not isinstance(array_shape, list) or any(
@@ -429,7 +620,9 @@ class TDLearner:
                 or tables.dtype != self.value_function.tables.dtype
             ):
                 raise ValueError("checkpoint array shape or dtype mismatch")
-        if metadata.get("state_hash") != self._state_hash_for(tables, candidate_counters):
+        if metadata.get("state_hash") != self._state_hash_for_config(
+            tables, candidate_counters, expected_learner_config
+        ):
             raise ValueError("checkpoint state hash mismatch")
         hash_payload = dict(metadata)
         checkpoint_hash = hash_payload.pop("checkpoint_hash")
@@ -449,13 +642,25 @@ class TD1PAgent:
     agent_type: str = "discovery"
     last_learning_seconds: float = field(default=0.0, init=False)
 
-    def act(self, observation: Observation, mode: EvaluationMode = EvaluationMode.TRAIN) -> Action:
+    def act(
+        self,
+        observation: Observation,
+        mode: EvaluationMode = EvaluationMode.TRAIN,
+        *,
+        feature_timer: TimerFactory | None = None,
+    ) -> Action:
         del mode
-        return self.learner.choose_action(observation)
+        return self.learner.choose_action(observation, feature_timer=feature_timer)
 
-    def observe(self, transition: StepResult, next_observation: Observation) -> None:
+    def observe(
+        self,
+        transition: StepResult,
+        next_observation: Observation,
+        *,
+        feature_timer: TimerFactory | None = None,
+    ) -> None:
         started = time.perf_counter()
-        self.learner.observe(transition, next_observation)
+        self.learner.observe(transition, next_observation, feature_timer=feature_timer)
         self.last_learning_seconds = time.perf_counter() - started
 
     def knowledge_manifest(self) -> KnowledgeManifest:
