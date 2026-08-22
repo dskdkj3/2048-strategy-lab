@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "experiment_id",
+    "output_root",
+    "shared_wall_seconds",
+    "finalization_reserve_seconds",
+    "screen_wall_seconds",
+    "round_robin_training_chunk",
+    "training_seeds",
+    "selection_evaluation_root_seed",
+    "audit_evaluation_root_seed",
+    "screen_target_episode",
+    "confirm_target_episode",
+    "screen_evaluation_episodes",
+    "audit_evaluation_episodes",
+    "exploration_sample_stride",
+    "exploration_overhead_limit",
+    "incumbent_candidate_id",
+    "parent_calibration_id",
+    "candidate_generation_rule",
+    "tuning_context_fingerprint",
+    "learner",
+    "candidates"
+  ],
+  "properties": {
+    "schema_version": {"const": "algorithm-calibration-v1"},
+    "experiment_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "output_root": {"type": "string", "minLength": 1},
+    "shared_wall_seconds": {"const": 600},
+    "finalization_reserve_seconds": {"const": 10.0},
+    "screen_wall_seconds": {"const": 270},
+    "round_robin_training_chunk": {"const": 10},
+    "training_seeds": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+      }
+    },
+    "selection_evaluation_root_seed": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "audit_evaluation_root_seed": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "screen_target_episode": {"const": 40},
+    "confirm_target_episode": {"const": 200},
+    "screen_evaluation_episodes": {"const": 20},
+    "audit_evaluation_episodes": {"const": 50},
+    "exploration_sample_stride": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000
+    },
+    "exploration_overhead_limit": {"const": 0.02},
+    "incumbent_candidate_id": {"const": "td0_zero"},
+    "parent_calibration_id": {"type": "string", "minLength": 1},
+    "candidate_generation_rule": {"const": "fixed-log-grid-v1"},
+    "tuning_context_fingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "max_steps_per_episode": {
+      "type": ["integer", "null"],
+      "minimum": 1
+    },
+    "learner": {
+      "type": "object",
+      "required": ["alpha", "gamma", "symmetry", "value_cardinality"],
+      "properties": {
+        "alpha": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "gamma": {"type": "number", "minimum": 0, "maximum": 1},
+        "symmetry": {"type": "boolean"},
+        "value_cardinality": {"type": "integer", "minimum": 2},
+        "tuples": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "integer", "minimum": 0, "maximum": 15}
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "candidates": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["id", "initialization", "optimistic_total_value"],
+        "properties": {
+          "id": {
+            "enum": [
+              "td0_zero",
+              "td0_oi_300",
+              "td0_oi_1000",
+              "td0_oi_3000",
+              "td0_oi_10000"
+            ]
+          },
+          "initialization": {"enum": ["zero", "optimistic"]},
+          "optimistic_total_value": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

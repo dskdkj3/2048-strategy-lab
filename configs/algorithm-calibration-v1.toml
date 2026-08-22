@@ -1,0 +1,51 @@
+schema_version = "algorithm-calibration-v1"
+experiment_id = "algorithm-calibration-v1"
+output_root = "artifacts"
+shared_wall_seconds = 600
+finalization_reserve_seconds = 10.0
+screen_wall_seconds = 270
+round_robin_training_chunk = 10
+training_seeds = ["calibration-train-a-v1", "calibration-train-b-v1"]
+selection_evaluation_root_seed = "calibration-selection-v1"
+audit_evaluation_root_seed = "calibration-audit-v1"
+screen_target_episode = 40
+confirm_target_episode = 200
+screen_evaluation_episodes = 20
+audit_evaluation_episodes = 50
+exploration_sample_stride = 32
+exploration_overhead_limit = 0.02
+incumbent_candidate_id = "td0_zero"
+parent_calibration_id = "discovery-pilot-v1"
+candidate_generation_rule = "fixed-log-grid-v1"
+tuning_context_fingerprint = "4e81cd3ae6e7d1b7430b6175e8d9d6d097fbace027152cc445186ed860099f58"
+
+[learner]
+alpha = 0.1
+gamma = 1.0
+symmetry = true
+value_cardinality = 16
+
+[[candidates]]
+id = "td0_zero"
+initialization = "zero"
+optimistic_total_value = 0.0
+
+[[candidates]]
+id = "td0_oi_300"
+initialization = "optimistic"
+optimistic_total_value = 300.0
+
+[[candidates]]
+id = "td0_oi_1000"
+initialization = "optimistic"
+optimistic_total_value = 1000.0
+
+[[candidates]]
+id = "td0_oi_3000"
+initialization = "optimistic"
+optimistic_total_value = 3000.0
+
+[[candidates]]
+id = "td0_oi_10000"
+initialization = "optimistic"
+optimistic_total_value = 10000.0

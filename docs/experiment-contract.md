@@ -29,3 +29,13 @@ resume training or add evaluation samples. See
 [`discovery-baseline.md`](discovery-baseline.md) for the diagnostic-only result
 gates, fixed score/tile milestones, next-step decision, and Discovery firewall
 boundary.
+
+Algorithm calibration artifacts add a separate
+`algorithm-calibration-v1` contract around the same official oracle, TD
+learner, checkpoint, and frozen-evaluation primitives. The protocol has one
+shared 600-second limit, fixed `0/300/1000/3000/10000` candidates, a
+selection-only episode-40 screen, and an independent episode-200 audit gate.
+The raw-derived reducer and verifier keep the two evaluation suites separate,
+persist the stage decision and experiment lineage, and record deterministic
+afterstate coverage without using it for promotion. See
+[`algorithm-calibration.md`](algorithm-calibration.md).

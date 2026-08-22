@@ -16,7 +16,7 @@ from typing import Any, Literal, cast
 
 import jsonschema  # type: ignore[import-untyped]
 
-from strategy2048.engine.oracle import EngineSnapshot, OracleEnv
+from strategy2048.engine.oracle import EngineSnapshot, OracleEnv, StepResult
 from strategy2048.experiments.artifacts import (
     ArtifactError,
     ArtifactStore,
@@ -1040,6 +1040,7 @@ def _train_one_episode(
     process_clock: Clock,
     interrupts: _InterruptController,
     phase_hook: Callable[[str], None] | None,
+    step_observer: Callable[[StepResult], None] | None = None,
 ) -> bool:
     episode_id = state.completed_episodes
     env: OracleEnv | None = None
@@ -1118,6 +1119,8 @@ def _train_one_episode(
                 phase_hook("env_step")
             with state.metrics.timer("rules"):
                 result = env.step(action)
+            if step_observer is not None:
+                step_observer(result)
             state.metrics.increment("env_steps")
             state.global_env_steps += 1
             if phase_hook is not None:

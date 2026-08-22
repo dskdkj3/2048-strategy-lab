@@ -18,6 +18,8 @@ uv run strategy2048 evaluate --config configs/random-smoke.toml
 uv run strategy2048 train --config configs/td0-zero-smoke.toml
 uv run strategy2048 discovery pilot --config configs/discovery-pilot-v1.toml
 uv run strategy2048 discovery verify artifacts/discovery-pilot-v1
+uv run strategy2048 calibration run --config configs/algorithm-calibration-v1.toml
+uv run strategy2048 calibration verify artifacts/algorithm-calibration-v1
 ```
 
 Without Nix, Python 3.13 and `uv` are required. `uv sync` creates the same
@@ -50,6 +52,13 @@ validated partial artifact. Its summary derives a bounded next-step routing
 decision from learning and phase-timer evidence. It does not claim statistical significance or strategy
 discovery and does not use human pattern/search/tablebase knowledge, `campus2`,
 or GPUs.
+
+The follow-up calibration protocol is documented in
+[`docs/algorithm-calibration.md`](docs/algorithm-calibration.md). It compares
+five optimistic-initialization values with a two-stage screen/holdout design
+under one shared 600-second limit. It may retain zero as the correct result;
+two seeds are not presented as statistical significance, and exploration
+coverage never overrides official audit score.
 
 ## License and contributions
 

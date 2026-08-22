@@ -18,6 +18,10 @@ from strategy2048.experiments.artifacts import (
     ArtifactStore,
     KnowledgeManifest,
 )
+from strategy2048.experiments.calibration import (
+    run_algorithm_calibration,
+    verify_calibration_artifact,
+)
 from strategy2048.experiments.discovery import (
     run_discovery_pilot,
     verify_discovery_artifact,
@@ -195,6 +199,24 @@ def command_discovery_verify(args: argparse.Namespace) -> int:
     return 0 if report.get("valid") is True else 1
 
 
+def command_calibration_run(args: argparse.Namespace) -> int:
+    config = _load_toml(args.config)
+    resume_from = args.resume
+    if resume_from == "":
+        resume_from = Path(config.get("output_root", "artifacts")) / str(
+            config.get("experiment_id", "algorithm-calibration-v1")
+        )
+    summary = run_algorithm_calibration(config, resume_from=resume_from)
+    print(json.dumps(summary, indent=2, sort_keys=True))
+    return 0 if summary.get("gate") != "contract-failed" else 1
+
+
+def command_calibration_verify(args: argparse.Namespace) -> int:
+    report = verify_calibration_artifact(args.artifact_directory)
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0 if report.get("valid") is True else 1
+
+
 def command_doctor(_: argparse.Namespace) -> int:
     checks = {
         "python": sys.version_info >= (3, 13) and sys.version_info < (3, 14),
@@ -301,6 +323,27 @@ def _parser() -> argparse.ArgumentParser:
     )
     discovery_verify.add_argument("artifact_directory")
     discovery_verify.set_defaults(handler=command_discovery_verify)
+    calibration = subparsers.add_parser("calibration")
+    calibration_sub = calibration.add_subparsers(dest="calibration_command", required=True)
+    calibration_run = calibration_sub.add_parser(
+        "run",
+        help="run the fixed calibration matrix under one shared 600-second budget",
+    )
+    calibration_run.add_argument("--config", required=True)
+    calibration_run.add_argument(
+        "--resume",
+        nargs="?",
+        const="",
+        metavar="ARTIFACT_DIR",
+        help="explicitly resume an interrupted artifact within its original 600-second budget",
+    )
+    calibration_run.set_defaults(handler=command_calibration_run)
+    calibration_verify = calibration_sub.add_parser(
+        "verify",
+        help="read-only verification of an algorithm calibration artifact",
+    )
+    calibration_verify.add_argument("artifact_directory")
+    calibration_verify.set_defaults(handler=command_calibration_verify)
     manifest = subparsers.add_parser("manifest")
     manifest_sub = manifest.add_subparsers(dest="manifest_command", required=True)
     manifest_validate = manifest_sub.add_parser("validate")
