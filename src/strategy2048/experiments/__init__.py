@@ -23,6 +23,23 @@ _DISCOVERY_EXPORTS = {
     "verify_discovery_artifact",
 }
 
+_CONFIRMATION_EXPORTS = {
+    "CONFIRMATION_GATES",
+    "ConfirmationConfig",
+    "ConfirmationConfigError",
+    "ConfirmationShardRequest",
+    "compute_confirmation_gate",
+    "load_confirmation_config",
+    "reduce_confirmation_gate",
+    "resolve_confirmation_config",
+    "run_confirmation_campaign",
+    "run_confirmation_formal_campaign",
+    "run_confirmation_scaling_preflight",
+    "run_confirmation_shard",
+    "run_scaling_preflight",
+    "verify_confirmation_shard",
+}
+
 
 def __getattr__(name: str) -> Any:
     """Load runner exports lazily so the TD learner can import artifacts safely."""
@@ -31,6 +48,10 @@ def __getattr__(name: str) -> Any:
         from strategy2048.experiments import discovery
 
         return getattr(discovery, name)
+    if name in _CONFIRMATION_EXPORTS:
+        from strategy2048.experiments import confirmation
+
+        return getattr(confirmation, name)
     raise AttributeError(name)
 
 
@@ -50,4 +71,18 @@ __all__ = [
     "resolve_discovery_config",
     "run_discovery_pilot",
     "verify_discovery_artifact",
+    "CONFIRMATION_GATES",
+    "ConfirmationConfig",
+    "ConfirmationConfigError",
+    "ConfirmationShardRequest",
+    "compute_confirmation_gate",
+    "load_confirmation_config",
+    "reduce_confirmation_gate",
+    "resolve_confirmation_config",
+    "run_confirmation_campaign",
+    "run_confirmation_formal_campaign",
+    "run_confirmation_scaling_preflight",
+    "run_confirmation_shard",
+    "run_scaling_preflight",
+    "verify_confirmation_shard",
 ]

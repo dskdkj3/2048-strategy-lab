@@ -63,3 +63,10 @@ The tuning-context fingerprint is computed after semantic normalization. In
 particular, omitted default tuples are expanded and candidate order is
 canonicalized before hashing. A fingerprint over the surface TOML would let
 the run start but make its own resolved artifact fail during final reduction.
+
+The fresh-seed OI-1000 confirmation protocol is a separate versioned contract;
+see [`oi-baseline-confirmation.md`](oi-baseline-confirmation.md). It predeclares
+eight fresh training seeds, consumes them in two-seed cohorts, owns one private
+artifact shard per candidate/seed pair, and keeps scientific projection separate
+from runtime telemetry. It does not reinterpret or append to the existing
+`algorithm-calibration-v1` source.

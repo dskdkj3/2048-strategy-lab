@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "experiment_id",
+    "output_root",
+    "training_seeds",
+    "evaluation_root_seed",
+    "legacy_seed_denylist",
+    "cohort_size",
+    "minimum_fresh_seeds",
+    "maximum_fresh_seeds",
+    "training_target_episode",
+    "audit_evaluation_episodes",
+    "max_steps_per_episode",
+    "campaign_wall_seconds",
+    "finalization_reserve_seconds",
+    "scaling_preflight_wall_seconds",
+    "candidates",
+    "learner",
+    "gate",
+    "resources"
+  ],
+  "properties": {
+    "schema_version": {"const": "oi-baseline-confirmation-v1"},
+    "experiment_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "output_root": {"type": "string", "minLength": 1},
+    "training_seeds": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"}
+    },
+    "evaluation_root_seed": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "legacy_seed_denylist": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"}
+    },
+    "cohort_size": {"const": 2},
+    "minimum_fresh_seeds": {"const": 4},
+    "maximum_fresh_seeds": {"const": 8},
+    "training_target_episode": {"const": 200},
+    "audit_evaluation_episodes": {"const": 50},
+    "max_steps_per_episode": {"type": ["integer", "null"], "minimum": 1},
+    "campaign_wall_seconds": {"const": 1800},
+    "finalization_reserve_seconds": {"const": 30.0},
+    "scaling_preflight_wall_seconds": {"const": 240},
+    "candidates": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["id", "initialization", "optimistic_total_value"],
+        "properties": {
+          "id": {"enum": ["td0_zero", "td0_oi_1000"]},
+          "initialization": {"enum": ["zero", "optimistic"]},
+          "optimistic_total_value": {"type": "number", "minimum": 0}
+        },
+        "additionalProperties": false
+      }
+    },
+    "learner": {
+      "type": "object",
+      "required": ["alpha", "gamma", "symmetry", "value_cardinality"],
+      "properties": {
+        "alpha": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "gamma": {"type": "number", "minimum": 0, "maximum": 1},
+        "symmetry": {"type": "boolean"},
+        "value_cardinality": {"type": "integer", "minimum": 2},
+        "tuples": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "integer", "minimum": 0, "maximum": 15}
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "gate": {
+      "type": "object",
+      "required": [
+        "minimum_median_score_gain",
+        "minimum_positive_share",
+        "severe_regression_threshold",
+        "minimum_median_tile_reach_delta"
+      ],
+      "properties": {
+        "minimum_median_score_gain": {"const": 0.15},
+        "minimum_positive_share": {"const": 0.75},
+        "severe_regression_threshold": {"const": -0.2},
+        "minimum_median_tile_reach_delta": {"const": 0.0}
+      },
+      "additionalProperties": false
+    },
+    "resources": {
+      "type": "object",
+      "required": ["worker_count", "start_method", "thread_env", "host", "cpu_affinity"],
+      "properties": {
+        "worker_count": {"type": "integer", "minimum": 1},
+        "start_method": {"const": "spawn"},
+        "thread_env": {
+          "type": "object",
+          "required": ["OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"],
+          "properties": {
+            "OPENBLAS_NUM_THREADS": {"const": "1"},
+            "OMP_NUM_THREADS": {"const": "1"},
+            "MKL_NUM_THREADS": {"const": "1"},
+            "NUMEXPR_NUM_THREADS": {"const": "1"}
+          },
+          "additionalProperties": false
+        },
+        "host": {"type": "string", "minLength": 1},
+        "cpu_affinity": {
+          "type": "array",
+          "items": {"type": "integer", "minimum": 0},
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

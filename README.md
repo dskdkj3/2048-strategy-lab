@@ -60,6 +60,13 @@ under one shared 600-second limit. It may retain zero as the correct result;
 two seeds are not presented as statistical significance, and exploration
 coverage never overrides official audit score.
 
+The fresh-seed confirmation protocol is documented in
+[`docs/oi-baseline-confirmation.md`](docs/oi-baseline-confirmation.md). It is a
+separate internal Python-library contract for paired `td0_zero` versus
+`td0_oi_1000` shards, four-to-eight predeclared fresh seeds, deterministic
+cohort reduction, strong replay, and an independent checker. It does not add a
+public CLI or claim statistical significance.
+
 ## License and contributions
 
 The project is available under `MIT OR Apache-2.0`; see `NOTICE`,

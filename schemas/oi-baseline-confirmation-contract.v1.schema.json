@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "projection_schema_version",
+    "provenance",
+    "source_result",
+    "projection",
+    "lineage_proof",
+    "evidence_boundary"
+  ],
+  "properties": {
+    "schema_version": {"const": "oi-baseline-confirmation-contract-v1"},
+    "projection_schema_version": {"const": "oi-baseline-confirmation-projection-v1"},
+    "provenance": {
+      "type": "object",
+      "required": [
+        "source_artifact_tree_sha256",
+        "source_artifact_tree_hash_schema",
+        "source_run_commit",
+        "source_config_hash",
+        "reducer_commit",
+        "reducer_dirty"
+      ],
+      "properties": {
+        "source_artifact_tree_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "source_artifact_tree_hash_schema": {"const": "sha256-relative-files-v1"},
+        "source_run_commit": {"type": "string"},
+        "source_config_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "reducer_commit": {"type": "string", "pattern": "^[a-f0-9]{7,64}$"},
+        "reducer_dirty": {"const": false}
+      },
+      "additionalProperties": false
+    },
+    "source_result": {"type": "object"},
+    "projection": {
+      "type": "object",
+      "required": ["config", "paired_comparisons", "shards", "scientific_digest"],
+      "properties": {
+        "config": {"type": "object"},
+        "paired_comparisons": {"type": "array"},
+        "shards": {"type": "array"},
+        "scientific_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "lineage_proof": {
+      "type": "object",
+      "required": ["schema_version", "confirmation_lineages", "all_confirm_lineages_verified"],
+      "properties": {
+        "schema_version": {"const": "oi-baseline-confirmation-lineage-proof-v1"},
+        "confirmation_lineages": {"type": "array"},
+        "all_confirm_lineages_verified": {"const": true}
+      },
+      "additionalProperties": false
+    },
+    "evidence_boundary": {
+      "type": "object",
+      "required": [
+        "source_artifact_modified",
+        "formal_training_run_started",
+        "scientific_sample_count_expanded",
+        "strong_replay_is_post_run_verification",
+        "statistical_significance_claimed"
+      ],
+      "properties": {
+        "source_artifact_modified": {"const": false},
+        "formal_training_run_started": {"type": "boolean"},
+        "scientific_sample_count_expanded": {"const": false},
+        "strong_replay_is_post_run_verification": {"const": true},
+        "statistical_significance_claimed": {"const": false}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

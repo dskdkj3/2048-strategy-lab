@@ -1,0 +1,63 @@
+schema_version = "oi-baseline-confirmation-v1"
+experiment_id = "oi-baseline-confirmation-v1"
+output_root = "artifacts"
+training_seeds = [
+  "confirmation-train-01-v1",
+  "confirmation-train-02-v1",
+  "confirmation-train-03-v1",
+  "confirmation-train-04-v1",
+  "confirmation-train-05-v1",
+  "confirmation-train-06-v1",
+  "confirmation-train-07-v1",
+  "confirmation-train-08-v1",
+]
+evaluation_root_seed = "confirmation-audit-v1"
+legacy_seed_denylist = [
+  "calibration-train-a-v1",
+  "calibration-train-b-v1",
+  "calibration-selection-v1",
+  "calibration-audit-v1",
+]
+cohort_size = 2
+minimum_fresh_seeds = 4
+maximum_fresh_seeds = 8
+training_target_episode = 200
+audit_evaluation_episodes = 50
+max_steps_per_episode = 20000
+campaign_wall_seconds = 1800
+finalization_reserve_seconds = 30.0
+scaling_preflight_wall_seconds = 240
+
+[learner]
+alpha = 0.1
+gamma = 1.0
+symmetry = true
+value_cardinality = 16
+
+[[candidates]]
+id = "td0_zero"
+initialization = "zero"
+optimistic_total_value = 0.0
+
+[[candidates]]
+id = "td0_oi_1000"
+initialization = "optimistic"
+optimistic_total_value = 1000.0
+
+[gate]
+minimum_median_score_gain = 0.15
+minimum_positive_share = 0.75
+severe_regression_threshold = -0.2
+minimum_median_tile_reach_delta = 0.0
+
+[resources]
+worker_count = 1
+start_method = "spawn"
+host = "desktop"
+cpu_affinity = []
+
+[resources.thread_env]
+OPENBLAS_NUM_THREADS = "1"
+OMP_NUM_THREADS = "1"
+MKL_NUM_THREADS = "1"
+NUMEXPR_NUM_THREADS = "1"
