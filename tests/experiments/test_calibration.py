@@ -147,6 +147,25 @@ def test_production_config_is_the_fixed_600_second_contract() -> None:
         3000.0,
         10000.0,
     ]
+    assert canonical_json(resolve_calibration_config(resolved).to_json()) == canonical_json(
+        resolved
+    )
+
+
+def test_fingerprint_is_stable_across_default_expansion_and_candidate_order() -> None:
+    raw = _tiny_config(experiment_id="fingerprint-roundtrip")
+    raw["learner"].pop("tuples")
+    raw["candidates"] = list(reversed(raw["candidates"]))
+    raw["tuning_context_fingerprint"] = compute_tuning_context_fingerprint(raw)
+
+    resolved = resolve_calibration_config(raw)
+
+    assert compute_tuning_context_fingerprint(raw) == compute_tuning_context_fingerprint(
+        resolved.to_json()
+    )
+    assert canonical_json(resolve_calibration_config(resolved.to_json()).to_json()) == (
+        canonical_json(resolved.to_json())
+    )
 
 
 def test_config_rejects_legacy_value_seed_collision_and_matrix_drift() -> None:

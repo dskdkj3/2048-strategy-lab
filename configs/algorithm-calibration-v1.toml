@@ -17,7 +17,7 @@ exploration_overhead_limit = 0.02
 incumbent_candidate_id = "td0_zero"
 parent_calibration_id = "discovery-pilot-v1"
 candidate_generation_rule = "fixed-log-grid-v1"
-tuning_context_fingerprint = "4e81cd3ae6e7d1b7430b6175e8d9d6d097fbace027152cc445186ed860099f58"
+tuning_context_fingerprint = "993a5a82efd6543275288e240e568b13dbb3eaf29a0b9ac3acc1094638cc0e81"
 
 [learner]
 alpha = 0.1

@@ -185,8 +185,30 @@ def _schema_error(error: jsonschema.ValidationError) -> str:
 def compute_tuning_context_fingerprint(value: Mapping[str, Any]) -> str:
     """Hash every field that changes what an OI winner means."""
 
+    learner_value = value.get("learner")
+    learner = dict(learner_value) if isinstance(learner_value, Mapping) else {}
+    tuples_value = learner.get("tuples")
+    learner["tuples"] = (
+        [list(coordinates) for coordinates in DEFAULT_TUPLES]
+        if tuples_value is None
+        else [
+            [int(cast(int, index)) for index in coordinates]
+            for coordinates in cast(Sequence[Sequence[object]], tuples_value)
+        ]
+    )
+    candidate_values = value.get("candidates")
+    candidates_by_id = {
+        str(item.get("id")): dict(item)
+        for item in cast(Sequence[Mapping[str, Any]], candidate_values or ())
+        if isinstance(item, Mapping)
+    }
+    candidates = [
+        candidates_by_id[candidate_id]
+        for candidate_id, _ in CALIBRATION_CANDIDATES
+        if candidate_id in candidates_by_id
+    ]
     payload = {
-        "learner": value.get("learner"),
+        "learner": learner,
         "max_steps_per_episode": value.get("max_steps_per_episode"),
         "screen_target_episode": value.get("screen_target_episode"),
         "confirm_target_episode": value.get("confirm_target_episode"),
@@ -196,7 +218,7 @@ def compute_tuning_context_fingerprint(value: Mapping[str, Any]) -> str:
         "selection_evaluation_root_seed": value.get("selection_evaluation_root_seed"),
         "audit_evaluation_root_seed": value.get("audit_evaluation_root_seed"),
         "candidate_generation_rule": value.get("candidate_generation_rule"),
-        "candidates": value.get("candidates"),
+        "candidates": candidates,
     }
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 

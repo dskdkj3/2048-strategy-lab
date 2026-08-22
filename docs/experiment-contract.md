@@ -39,3 +39,14 @@ The raw-derived reducer and verifier keep the two evaluation suites separate,
 persist the stage decision and experiment lineage, and record deterministic
 afterstate coverage without using it for promotion. See
 [`algorithm-calibration.md`](algorithm-calibration.md).
+
+The calibration resolver has a mandatory canonical round-trip contract:
+
+```text
+raw TOML -> resolved JSON -> resolve again == identical resolved JSON
+```
+
+The tuning-context fingerprint is computed after semantic normalization. In
+particular, omitted default tuples are expanded and candidate order is
+canonicalized before hashing. A fingerprint over the surface TOML would let
+the run start but make its own resolved artifact fail during final reduction.
