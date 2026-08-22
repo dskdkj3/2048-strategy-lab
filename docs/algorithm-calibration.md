@@ -6,7 +6,9 @@ useful than keeping the TD learner at zero initialization?
 
 The whole matrix has one shared **600-second wall-clock limit**. The limit
 includes training, frozen evaluation, checkpoints, exploration diagnostics,
-logging, and final summary writes. It is not 600 seconds per candidate.
+logging, and final summary writes. New-run initialization and resume preflight/
+restore are charged from the moment the runner is entered. It is not 600
+seconds per candidate, and resume never starts a fresh 600-second allowance.
 
 ## Two-stage experiment
 
@@ -67,7 +69,38 @@ The verifier revalidates the resolved config and seed separation, restores
 every milestone checkpoint, checks table/state hashes and RNG lineage, checks
 that frozen evaluation changed neither live nor cloned learner state, derives
 the screen survivor from selection raw records, derives the final gate from
-audit raw records, verifies coverage hashes, and recomputes the summary.
+audit raw records, verifies coverage hashes, checks contiguous training episode,
+environment-step, counter, and checkpoint relationships, and recomputes the
+summary.
+
+## Derived contract v2
+
+The v1 run directory remains the immutable scientific source. A post-run Python
+library API can read that source and create a separate sibling
+`algorithm-calibration-contract-v2` bundle. It never writes a sidecar into the
+source directory and refuses to overwrite an existing destination.
+
+The derived contract records a content digest of every source file, the source
+run commit, the clean reducer commit, the projection schema version, and a full
+raw-derived projection. The projection includes per-seed absolute score
+distributions, max-tile and tile-reach rates, episodes, environment steps,
+updates, wall/CPU cost, paired comparisons, and learning-efficiency fields.
+Episode-40 own-score gain uses selection checkpoint 0 and 40 from the same
+suite. Episode-200 reporting uses paired audit advantage and the resource delta
+from episode 40 to 200; it does not subtract across the selection and audit
+suites.
+
+For every run that reached confirmation, the strong verifier restores the
+exact episode-40 checkpoint and deterministically replays episodes 40 through
+199. It compares each persisted score, tile, step/counter transition, learner
+hash, and RNG lineage, then compares the complete episode-200 checkpoint. This
+can take minutes on a formal artifact. It is independent verification after the
+run, not additional training, extra samples, or an extension of the 600-second
+scientific budget.
+
+Existing valid v1 artifacts remain valid without a derived bundle. A derived
+bundle is stronger portable evidence, not a rewrite or retroactive upgrade of
+the source. A `contract-failed` source cannot be turned into a valid bundle.
 
 ## Exploration diagnostic
 

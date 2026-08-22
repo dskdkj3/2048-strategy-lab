@@ -1387,6 +1387,8 @@ def run_algorithm_calibration(
 ) -> dict[str, Any]:
     """Run or explicitly resume the fixed two-stage v1 calibration matrix."""
 
+    started = clock()
+    process_started = process_clock()
     if isinstance(config, (str, Path)):
         resolved = load_calibration_config(config)
     elif isinstance(config, CalibrationConfig):
@@ -1487,8 +1489,6 @@ def run_algorithm_calibration(
             run_count=len(states),
         )
 
-    started = clock()
-    process_started = process_clock()
     remaining = max(0.0, resolved.shared_wall_seconds - prior_consumed)
     hard_deadline = started + remaining
     finalization_reserve = min(resolved.finalization_reserve_seconds, remaining)
@@ -1820,6 +1820,14 @@ def verify_calibration_artifact(artifact_directory: str | Path) -> dict[str, Any
                 or lineage.get("environment_id") != f"{config.experiment_id}-training"
             ):
                 raise ArtifactError("milestone RNG lineage mismatch")
+
+        # Imported lazily because the derived-contract module reuses the
+        # calibration reducer and checkpoint builders from this module.
+        from strategy2048.experiments.calibration_contract import (
+            validate_training_structure,
+        )
+
+        validate_training_structure(root)
 
         coverage = _coverage_summary(root, config)
         if len(cast(Mapping[str, Any], coverage["runs"])) != (

@@ -40,6 +40,19 @@ persist the stage decision and experiment lineage, and record deterministic
 afterstate coverage without using it for promotion. See
 [`algorithm-calibration.md`](algorithm-calibration.md).
 
+Calibration charges config parsing, new-run initialization, and resume
+preflight/restore to the same 600-second segment as training and finalization.
+Its source verifier also enforces contiguous training episode IDs, cumulative
+environment steps and counters, and milestone-to-training endpoint consistency.
+
+The optional `algorithm-calibration-contract-v2` is a separate derived evidence
+directory. It hashes the immutable v1 source tree, projects the complete raw
+metric set, records source/reducer Git provenance, and deterministically replays
+every episode-40 to episode-200 confirmation lineage. Strong replay runs after
+the scientific run and may take minutes; it is verification cost, not training
+time or additional evidence samples. Derived output must be disjoint from the
+source, use a clean committed reducer, and never overwrite an existing bundle.
+
 The calibration resolver has a mandatory canonical round-trip contract:
 
 ```text

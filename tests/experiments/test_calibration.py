@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import signal
 from pathlib import Path
 from typing import Any
@@ -8,7 +9,8 @@ from typing import Any
 import jsonschema
 import pytest
 
-from strategy2048.experiments.artifacts import ArtifactError, canonical_json
+from strategy2048.experiments import calibration as calibration_module
+from strategy2048.experiments.artifacts import ArtifactError, ArtifactStore, canonical_json
 from strategy2048.experiments.calibration import (
     CALIBRATION_SCHEMA_PATH,
     CalibrationConfigError,
@@ -20,6 +22,14 @@ from strategy2048.experiments.calibration import (
     resolve_calibration_config,
     run_algorithm_calibration,
     verify_calibration_artifact,
+)
+from strategy2048.experiments.calibration_contract import (
+    CONTRACT_SCHEMA_VERSION,
+    PROJECTION_SCHEMA_VERSION,
+    artifact_tree_sha256,
+    build_calibration_contract,
+    recompute_calibration_contract,
+    verify_calibration_contract,
 )
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
@@ -102,6 +112,35 @@ class AdvancingClock:
         current = self.value
         self.value += self.step
         return current
+
+
+class ManualClock:
+    def __init__(self) -> None:
+        self.value = 0.0
+
+    def __call__(self) -> float:
+        return self.value
+
+    def advance(self, seconds: float) -> None:
+        self.value += seconds
+
+
+def _contract_config(*, experiment_id: str) -> dict[str, Any]:
+    config = _tiny_config(experiment_id=experiment_id)
+    config["max_steps_per_episode"] = 4
+    config["tuning_context_fingerprint"] = compute_tuning_context_fingerprint(config)
+    return config
+
+
+def _run_contract_source(root: Path, *, experiment_id: str) -> dict[str, Any]:
+    summary = run_algorithm_calibration(
+        _contract_config(experiment_id=experiment_id),
+        artifact_directory=root,
+    )
+    manifest = _read_json(root / "run-manifest.json")
+    manifest["source"] = {"commit": "d" * 40, "dirty": False}
+    root.joinpath("run-manifest.json").write_text(canonical_json(manifest) + "\n", encoding="utf-8")
+    return summary
 
 
 def _selection_records(config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -369,6 +408,191 @@ def test_verifier_rejects_missing_screen_evaluation_or_stage_order(tmp_path: Pat
 
     assert report["valid"] is False
     assert "stage decision exists before the screen is complete" in report["errors"][0]
+
+
+def test_new_run_setup_is_charged_to_the_shared_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "setup-budget"
+    clock = ManualClock()
+    initialize = ArtifactStore.initialize
+
+    def initialize_with_cost(
+        self: ArtifactStore,
+        *,
+        knowledge_manifest: Any,
+        seed: int | str,
+        budget: Any = None,
+    ) -> None:
+        clock.advance(7.5)
+        initialize(
+            self,
+            knowledge_manifest=knowledge_manifest,
+            seed=seed,
+            budget=budget,
+        )
+
+    monkeypatch.setattr(ArtifactStore, "initialize", initialize_with_cost)
+    summary = run_algorithm_calibration(
+        _tiny_config(experiment_id="setup-budget"),
+        artifact_directory=root,
+        clock=clock,
+        process_clock=lambda: 0.0,
+    )
+
+    assert summary["stop_reason"] == "completed"
+    assert summary["consumed_wall_seconds"] == 7.5
+
+
+def test_resume_setup_is_charged_without_resetting_prior_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "resume-setup-budget"
+    fired = False
+
+    def interrupt_once(phase: str) -> None:
+        nonlocal fired
+        if phase == "env_step" and not fired:
+            fired = True
+            signal.raise_signal(signal.SIGINT)
+
+    interrupted = run_algorithm_calibration(
+        _tiny_config(experiment_id="resume-setup-budget"),
+        artifact_directory=root,
+        clock=lambda: 0.0,
+        process_clock=lambda: 0.0,
+        phase_hook=interrupt_once,
+    )
+    prior = float(interrupted["consumed_wall_seconds"])
+    clock = ManualClock()
+    restore_states = calibration_module._restore_states
+
+    def restore_with_cost(store: ArtifactStore, config: Any) -> Any:
+        clock.advance(11.0)
+        return restore_states(store, config)
+
+    monkeypatch.setattr(calibration_module, "_restore_states", restore_with_cost)
+    completed = run_algorithm_calibration(
+        _tiny_config(experiment_id="resume-setup-budget"),
+        resume_from=root,
+        clock=clock,
+        process_clock=lambda: 0.0,
+    )
+
+    assert completed["stop_reason"] == "completed"
+    assert completed["consumed_wall_seconds"] == prior + 11.0
+
+
+def test_derived_contract_round_trip_preserves_the_source(tmp_path: Path) -> None:
+    source = tmp_path / "p4"
+    destination = tmp_path / "contract-v2"
+    summary = _run_contract_source(source, experiment_id="p4")
+    before = artifact_tree_sha256(source)
+
+    contract = build_calibration_contract(
+        source,
+        destination,
+        reducer_commit="a" * 40,
+        reducer_dirty=False,
+    )
+
+    assert contract["schema_version"] == CONTRACT_SCHEMA_VERSION
+    assert contract["projection_schema_version"] == PROJECTION_SCHEMA_VERSION
+    assert contract["provenance"]["source_artifact_tree_sha256"] == before
+    assert (
+        contract["provenance"]["source_run_commit"]
+        == _read_json(source / "run-manifest.json")["source"]["commit"]
+    )
+    assert len(contract["projection"]["runs"]) == 10
+    assert contract["projection"]["milestone_thresholds"] == {
+        "official_score": 5000,
+        "tile": 256,
+    }
+    assert contract["projection"]["learning_efficiency"]["cross_suite_own_gain_computed"] is False
+    assert contract["lineage_proof"]["all_confirm_lineages_verified"] is True
+    assert len(contract["lineage_proof"]["confirmation_lineages"]) == 4
+    assert artifact_tree_sha256(source) == before
+    report = verify_calibration_contract(source, destination)
+    assert report["valid"] is True
+    assert report["gate"] == summary["gate"]
+
+
+def test_contract_rejects_episode_sequence_and_replay_tampering(tmp_path: Path) -> None:
+    source = tmp_path / "p4"
+    _run_contract_source(source, experiment_id="p4")
+
+    sequence_root = tmp_path / "sequence-corrupt"
+    shutil.copytree(source, sequence_root)
+    sequence_path = next(sequence_root.glob("runs/*/*/training-episodes.jsonl"))
+    sequence_records = [
+        json.loads(line) for line in sequence_path.read_text(encoding="utf-8").splitlines()
+    ]
+    sequence_records[1]["episode_id"] = 2
+    sequence_path.write_text(
+        "\n".join(canonical_json(record) for record in sequence_records) + "\n",
+        encoding="utf-8",
+    )
+    sequence_report = verify_calibration_artifact(sequence_root)
+    assert sequence_report["valid"] is False
+    assert "episode sequence mismatch" in sequence_report["errors"][0]
+
+    replay_root = tmp_path / "replay-corrupt"
+    shutil.copytree(source, replay_root)
+    summary = _read_json(replay_root / "calibration-summary.json")
+    survivor = summary["survivor_candidate_id"]
+    replay_path = replay_root / f"runs/{survivor}/calibration-train-a-v1/training-episodes.jsonl"
+    replay_records = [
+        json.loads(line) for line in replay_path.read_text(encoding="utf-8").splitlines()
+    ]
+    replay_records[40]["official_score"] += 4
+    replay_path.write_text(
+        "\n".join(canonical_json(record) for record in replay_records) + "\n",
+        encoding="utf-8",
+    )
+    assert verify_calibration_artifact(replay_root)["valid"] is True
+    with pytest.raises(ArtifactError, match="confirmation replay mismatch"):
+        recompute_calibration_contract(
+            replay_root,
+            reducer_commit="b" * 40,
+            reducer_dirty=False,
+        )
+
+
+def test_contract_tree_hash_and_destination_fail_closed(tmp_path: Path) -> None:
+    source = tmp_path / "tree-source"
+    source.mkdir()
+    source.joinpath("a.txt").write_text("a", encoding="utf-8")
+    first = artifact_tree_sha256(source)
+    source.joinpath("a.txt").write_text("b", encoding="utf-8")
+    assert artifact_tree_sha256(source) != first
+    source.joinpath("link").symlink_to("a.txt")
+    with pytest.raises(ArtifactError, match="symlink"):
+        artifact_tree_sha256(source)
+
+    completed_source = tmp_path / "p4"
+    _run_contract_source(completed_source, experiment_id="p4")
+    existing = tmp_path / "existing-contract"
+    existing.mkdir()
+    with pytest.raises(ArtifactError, match="already exists"):
+        build_calibration_contract(
+            completed_source,
+            existing,
+            reducer_commit="c" * 40,
+            reducer_dirty=False,
+        )
+    with pytest.raises(ArtifactError, match="disjoint"):
+        build_calibration_contract(
+            completed_source,
+            completed_source / "derived",
+            reducer_commit="c" * 40,
+            reducer_dirty=False,
+        )
+    with pytest.raises(ArtifactError, match="clean reducer"):
+        recompute_calibration_contract(
+            completed_source,
+            reducer_commit="c" * 40,
+            reducer_dirty=True,
+        )
 
     stage_order_root = tmp_path / "stage-order"
     run_algorithm_calibration(

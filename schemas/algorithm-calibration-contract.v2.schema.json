@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://strategy2048.local/schemas/algorithm-calibration-contract.v2.schema.json",
+  "title": "Algorithm Calibration Contract v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "projection_schema_version",
+    "provenance",
+    "source_result",
+    "projection",
+    "lineage_proof",
+    "evidence_boundary"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "algorithm-calibration-contract-v2"
+    },
+    "projection_schema_version": {
+      "const": "algorithm-calibration-projection-v2"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_artifact_tree_sha256",
+        "source_artifact_tree_hash_schema",
+        "source_run_commit",
+        "source_config_hash",
+        "reducer_commit",
+        "reducer_dirty"
+      ],
+      "properties": {
+        "source_artifact_tree_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source_artifact_tree_hash_schema": {
+          "const": "artifact-tree-sha256-v1"
+        },
+        "source_run_commit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_config_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "reducer_commit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reducer_dirty": {
+          "const": false
+        }
+      }
+    },
+    "source_result": {
+      "type": "object"
+    },
+    "projection": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "runs",
+        "paired_comparisons",
+        "learning_efficiency",
+        "exploration",
+        "milestone_thresholds"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "algorithm-calibration-projection-v2"
+        },
+        "runs": {
+          "type": "object",
+          "minProperties": 1
+        },
+        "paired_comparisons": {
+          "type": "array"
+        },
+        "learning_efficiency": {
+          "type": "object"
+        },
+        "exploration": {
+          "type": "object"
+        },
+        "milestone_thresholds": {
+          "type": "object"
+        }
+      }
+    },
+    "lineage_proof": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "structural_runs",
+        "confirmation_lineages",
+        "all_confirm_lineages_verified"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "algorithm-calibration-lineage-proof-v1"
+        },
+        "structural_runs": {
+          "type": "object"
+        },
+        "confirmation_lineages": {
+          "type": "array"
+        },
+        "all_confirm_lineages_verified": {
+          "const": true
+        }
+      }
+    },
+    "evidence_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_artifact_modified",
+        "formal_training_run_started",
+        "scientific_sample_count_expanded",
+        "named_strategy_detector_run",
+        "strong_replay_is_post_run_verification"
+      ],
+      "properties": {
+        "source_artifact_modified": {
+          "const": false
+        },
+        "formal_training_run_started": {
+          "const": false
+        },
+        "scientific_sample_count_expanded": {
+          "const": false
+        },
+        "named_strategy_detector_run": {
+          "const": false
+        },
+        "strong_replay_is_post_run_verification": {
+          "const": true
+        }
+      }
+    }
+  }
+}
