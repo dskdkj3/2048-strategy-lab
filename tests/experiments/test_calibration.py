@@ -344,3 +344,64 @@ def test_verifier_rejects_selection_seed_relabeling(tmp_path: Path) -> None:
     assert report["valid"] is False
     assert report["gate"] == "contract-failed"
     assert "seed suite mismatch" in report["errors"][0]
+
+
+def test_verifier_rejects_missing_screen_evaluation_or_stage_order(tmp_path: Path) -> None:
+    missing_evaluation_root = tmp_path / "missing-screen-evaluation"
+    run_algorithm_calibration(
+        _tiny_config(experiment_id="missing-screen-evaluation"),
+        artifact_directory=missing_evaluation_root,
+        clock=lambda: 0.0,
+        process_clock=lambda: 0.0,
+    )
+    for training_seed in _tiny_config(experiment_id="unused")["training_seeds"]:
+        path = (
+            missing_evaluation_root
+            / f"runs/td0_zero/{training_seed}/evaluation/selection/0/episodes.jsonl"
+        )
+        path.write_text("", encoding="utf-8")
+    missing_evaluation_root.joinpath("calibration-summary.json").write_text(
+        canonical_json(recompute_calibration_summary(missing_evaluation_root)) + "\n",
+        encoding="utf-8",
+    )
+
+    report = verify_calibration_artifact(missing_evaluation_root)
+
+    assert report["valid"] is False
+    assert "stage decision exists before the screen is complete" in report["errors"][0]
+
+    stage_order_root = tmp_path / "stage-order"
+    run_algorithm_calibration(
+        _tiny_config(experiment_id="stage-order"),
+        artifact_directory=stage_order_root,
+        clock=lambda: 0.0,
+        process_clock=lambda: 0.0,
+    )
+    checkpoints = [
+        json.loads(line)
+        for line in stage_order_root.joinpath("checkpoints.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    checkpoints = [
+        record
+        for record in checkpoints
+        if not (
+            record.get("checkpoint_episode") == 40
+            and record.get("arm_id") == "td0_zero"
+            and record.get("training_seed") == "calibration-train-a-v1"
+        )
+    ]
+    stage_order_root.joinpath("checkpoints.jsonl").write_text(
+        "\n".join(canonical_json(record) for record in checkpoints) + "\n",
+        encoding="utf-8",
+    )
+    stage_order_root.joinpath("calibration-summary.json").write_text(
+        canonical_json(recompute_calibration_summary(stage_order_root)) + "\n",
+        encoding="utf-8",
+    )
+
+    report = verify_calibration_artifact(stage_order_root)
+
+    assert report["valid"] is False
+    assert "stage decision exists before the screen is complete" in report["errors"][0]

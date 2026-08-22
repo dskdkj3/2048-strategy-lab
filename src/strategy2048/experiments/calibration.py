@@ -432,7 +432,10 @@ def _milestone_records(root: Path) -> dict[tuple[str, str, int], dict[str, Any]]
             and isinstance(training_seed, str)
             and type(episode) is int
         ):
-            records[(candidate_id, training_seed, episode)] = record
+            key = (candidate_id, training_seed, episode)
+            if key in records:
+                raise ArtifactError(f"duplicate milestone checkpoint record: {key}")
+            records[key] = record
     return records
 
 
@@ -1269,16 +1272,21 @@ def recompute_calibration_summary(
     }
     existing_milestones = set(milestones)
     screen_checkpoints_complete = expected_screen_keys <= existing_milestones
-    screen_scores = _suite_scores(
-        evaluations,
-        suite="selection",
-        checkpoint_episode=config.screen_target_episode,
-    )
+    screen_scores_by_episode = {
+        checkpoint_episode: _suite_scores(
+            evaluations,
+            suite="selection",
+            checkpoint_episode=checkpoint_episode,
+        )
+        for checkpoint_episode in (0, config.screen_target_episode)
+    }
     expected_eval_ids = set(range(config.screen_evaluation_episodes))
     screen_evaluation_complete = all(
-        set(screen_scores.get((candidate.id, seed), {})) == expected_eval_ids
+        set(screen_scores_by_episode[checkpoint_episode].get((candidate.id, seed), {}))
+        == expected_eval_ids
         for candidate in config.candidates
         for seed in config.training_seeds
+        for checkpoint_episode in (0, config.screen_target_episode)
     )
 
     screen_decision: dict[str, Any] | None = None
@@ -1713,6 +1721,7 @@ def verify_calibration_artifact(artifact_directory: str | Path) -> dict[str, Any
             "run-manifest.json",
             "knowledge-manifest.json",
             "calibration-progress.jsonl",
+            "checkpoints.jsonl",
             "calibration-summary.json",
         )
         missing = [name for name in required if not (root / name).is_file()]
@@ -1826,8 +1835,22 @@ def verify_calibration_artifact(artifact_directory: str | Path) -> dict[str, Any
             derived = derive_screen_decision(config, evaluations, _training_records(root))
             if canonical_json(decisions[0]) != canonical_json(derived):
                 raise ArtifactError("screen decision does not match selection raw records")
-        elif len(decisions) > 1:
-            raise ArtifactError("partial calibration contains duplicate stage decisions")
+            survivor = derived.get("survivor_candidate_id")
+            selected_ids = {"td0_zero"}
+            if isinstance(survivor, str):
+                selected_ids.add(survivor)
+            if any(
+                record.get("suite") == "audit" and record.get("candidate_id") not in selected_ids
+                for record in evaluations
+            ):
+                raise ArtifactError("audit suite contains a non-selected candidate")
+        else:
+            if decisions:
+                raise ArtifactError("stage decision exists before the screen is complete")
+            if any(record.get("suite") == "audit" for record in evaluations) or any(
+                key[2] == config.confirm_target_episode for key in _milestone_records(root)
+            ):
+                raise ArtifactError("confirmation data exists before the screen is complete")
 
         stored_summary = _read_json(root / "calibration-summary.json")
         recomputed = recompute_calibration_summary(root)
